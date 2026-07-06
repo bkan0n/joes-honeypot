@@ -92,14 +92,23 @@ func (s *Store) GetChannelByID(channelID snowflake.ID) (*Channel, error) {
 }
 
 func (s *Store) SetChannel(guildID, channelID snowflake.ID) error {
-	_, err := s.db.Exec(`DELETE FROM honeypot_channels WHERE guild_id = ? AND channel_id != ?`,
-		int64(guildID), int64(channelID))
+	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`INSERT INTO honeypot_channels (channel_id, guild_id) VALUES (?, ?)
+	_, err = tx.Exec(`DELETE FROM honeypot_channels WHERE guild_id = ? AND channel_id != ?`,
+		int64(guildID), int64(channelID))
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	_, err = tx.Exec(`INSERT INTO honeypot_channels (channel_id, guild_id) VALUES (?, ?)
 		ON CONFLICT(channel_id) DO NOTHING`, int64(channelID), int64(guildID))
-	return err
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) SetWarningMsg(channelID snowflake.ID, msgID *snowflake.ID) error {

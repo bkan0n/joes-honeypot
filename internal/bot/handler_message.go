@@ -129,23 +129,38 @@ func (b *Bot) onMessageCreate(e *events.MessageCreate) {
 	b.Log.Info("moderated", "guild", guildID, "user", msg.Author.ID, "action", cfg.Action)
 }
 
-// sendLog posts to the configured log channel; if that fails because the
-// channel is gone/inaccessible it unsets it and falls back to the honeypot
-// channel.
+// sendLog posts to the configured log channel; it only unsets the log
+// channel when the failure is a permanent channel problem (deleted /
+// inaccessible / no permissions). Any other error is logged and the log
+// channel is left configured — this message still falls back to the
+// honeypot channel.
 func (b *Bot) sendLog(cfg *store.Config, fallbackChannelID snowflake.ID, msg discord.MessageCreate) {
 	if cfg.LogChannelID != nil {
 		if _, err := b.Client.Rest.CreateMessage(*cfg.LogChannelID, msg); err == nil {
 			return
-		} else {
+		} else if isPermanentChannelError(err) {
 			b.Log.Warn("log channel unusable, unsetting", "channel", *cfg.LogChannelID, "err", err)
 			if dbErr := b.Store.UnsetLogChannel(cfg.GuildID); dbErr != nil {
 				b.Log.Error("unsetting log channel", "err", dbErr)
 			}
+		} else {
+			b.Log.Warn("log channel send failed, leaving it configured", "channel", *cfg.LogChannelID, "err", err)
 		}
 	}
 	if _, err := b.Client.Rest.CreateMessage(fallbackChannelID, msg); err != nil {
 		b.Log.Debug("fallback log message failed", "err", err)
 	}
+}
+
+// isPermanentChannelError reports whether err indicates the log channel is
+// permanently unusable (deleted, or the bot lost access/permissions) as
+// opposed to a transient failure (rate limit, timeout, Discord outage, ...).
+func isPermanentChannelError(err error) bool {
+	return rest.IsJSONErrorCode(err,
+		rest.JSONErrorCodeUnknownChannel,
+		rest.JSONErrorCodeMissingAccess,
+		rest.JSONErrorCodeLackPermissionsToPerformAction,
+	)
 }
 
 func (b *Bot) dmUser(userID snowflake.ID, content string) error {

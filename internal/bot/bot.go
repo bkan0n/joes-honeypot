@@ -44,6 +44,7 @@ func New(token string, st *store.Store, log *slog.Logger) (*Bot, error) {
 		dbot.WithEventListenerFunc(b.onComponent),
 		dbot.WithEventListenerFunc(b.onGuildJoin),
 		dbot.WithEventListenerFunc(b.onChannelDelete),
+		dbot.WithEventListenerFunc(b.onThreadDelete),
 		dbot.WithEventListenerFunc(b.onMessageDelete),
 		dbot.WithEventListenerFunc(b.onGuildLeave),
 	}

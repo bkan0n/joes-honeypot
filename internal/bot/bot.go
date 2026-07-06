@@ -40,6 +40,7 @@ func New(token string, st *store.Store, log *slog.Logger) (*Bot, error) {
 	listeners := []dbot.ConfigOpt{
 		dbot.WithEventListenerFunc(b.onCommand),
 		dbot.WithEventListenerFunc(b.onModalSubmit),
+		dbot.WithEventListenerFunc(b.onMessageCreate),
 	}
 	opts := append([]dbot.ConfigOpt{
 		dbot.WithGatewayConfigOpts(

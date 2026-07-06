@@ -37,7 +37,10 @@ func New(token string, st *store.Store, log *slog.Logger) (*Bot, error) {
 	}
 	// Event listeners are appended here by the handler files (handler_*.go,
 	// setup.go, housekeeping.go) as they are implemented.
-	listeners := []dbot.ConfigOpt{}
+	listeners := []dbot.ConfigOpt{
+		dbot.WithEventListenerFunc(b.onCommand),
+		dbot.WithEventListenerFunc(b.onModalSubmit),
+	}
 	opts := append([]dbot.ConfigOpt{
 		dbot.WithGatewayConfigOpts(
 			gateway.WithIntents(gateway.IntentGuilds|gateway.IntentGuildMessages),

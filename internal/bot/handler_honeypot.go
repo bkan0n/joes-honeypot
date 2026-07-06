@@ -12,6 +12,11 @@ import (
 	"github.com/bkan0n/joeshoneypot/internal/store"
 )
 
+// warningMessagePrefix identifies a bot-authored message as our persistent
+// warning post, used both to detect a stale message (see selectWarningMessage)
+// and, indirectly, as the start of WarningMessage's content.
+const warningMessagePrefix = "## ⚠️"
+
 const (
 	modalID          = "honeypot_config"
 	honeypotChanCID  = "honeypot_channel"
@@ -179,6 +184,33 @@ func (b *Bot) ensureWarningMessage(guildID, channelID snowflake.ID) bool {
 		}
 		// Message gone (deleted manually) — fall through and repost.
 	}
+
+	// No msg_id on record — before posting a new warning message, check
+	// whether the bot already left one behind (e.g. a rejoin, or a restart
+	// racing a stale DB write). If so, adopt the oldest and clean up
+	// duplicates instead of spamming another one.
+	if recent, err := b.Client.Rest.GetMessages(channelID, 0, 0, 0, 50); err != nil {
+		b.Log.Warn("listing messages for warning-message dedup", "channel", channelID, "err", err)
+	} else if adopt, extras := selectWarningMessage(recent, b.Client.ID()); adopt != nil {
+		content := WarningMessage()
+		if _, err := b.Client.Rest.UpdateMessage(channelID, adopt.ID, discord.MessageUpdate{
+			Content:    &content,
+			Components: &components,
+		}); err != nil {
+			b.Log.Warn("updating adopted warning message", "channel", channelID, "msg", adopt.ID, "err", err)
+		}
+		if err := b.Store.SetWarningMsg(channelID, &adopt.ID); err != nil {
+			b.Log.Error("storing adopted warning msg id", "err", err)
+			return false
+		}
+		for _, extra := range extras {
+			if err := b.Client.Rest.DeleteMessage(channelID, extra.ID); err != nil {
+				b.Log.Warn("deleting duplicate warning message", "channel", channelID, "msg", extra.ID, "err", err)
+			}
+		}
+		return true
+	}
+
 	msg, err := b.Client.Rest.CreateMessage(channelID, discord.MessageCreate{
 		Content:    WarningMessage(),
 		Components: components,
@@ -192,6 +224,38 @@ func (b *Bot) ensureWarningMessage(guildID, channelID snowflake.ID) bool {
 		return false
 	}
 	return true
+}
+
+// selectWarningMessage scans a channel's recent messages for ones the bot
+// itself posted that look like our persistent warning message (see
+// WarningMessage). It returns the oldest match to adopt (its ID gets stored
+// as the tracked warning message) and any remaining matches as extras that
+// should be deleted as duplicates. msgs is not assumed to be in any
+// particular order (GetMessages returns newest-first, but this doesn't rely
+// on that).
+func selectWarningMessage(msgs []discord.Message, botID snowflake.ID) (adopt *discord.Message, extras []discord.Message) {
+	var matches []discord.Message
+	for _, m := range msgs {
+		if m.Author.ID == botID && strings.HasPrefix(m.Content, warningMessagePrefix) {
+			matches = append(matches, m)
+		}
+	}
+	if len(matches) == 0 {
+		return nil, nil
+	}
+	oldest := 0
+	for i, m := range matches {
+		if m.ID < matches[oldest].ID {
+			oldest = i
+		}
+	}
+	chosen := matches[oldest]
+	for i, m := range matches {
+		if i != oldest {
+			extras = append(extras, m)
+		}
+	}
+	return &chosen, extras
 }
 
 func (b *Bot) botPermissionsIn(guildID, channelID snowflake.ID) discord.Permissions {

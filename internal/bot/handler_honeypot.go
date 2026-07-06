@@ -127,7 +127,10 @@ func (b *Bot) onModalSubmit(e *events.ModalSubmitInteractionCreate) {
 		return
 	}
 
-	prev, _ := b.Store.GetChannel(guildID)
+	prev, err := b.Store.GetChannel(guildID)
+	if err != nil {
+		b.Log.Error("loading previous channel", "guild", guildID, "err", err)
+	}
 	if err := b.Store.UpsertConfig(store.Config{GuildID: guildID, LogChannelID: sub.LogChannelID, Action: sub.Action}); err != nil {
 		b.Log.Error("saving config", "guild", guildID, "err", err)
 		b.replyEphemeral(e, "Something went wrong saving the config. No settings have been changed.")
@@ -144,21 +147,26 @@ func (b *Bot) onModalSubmit(e *events.ModalSubmitInteractionCreate) {
 			b.Log.Warn("deleting old warning message", "err", err)
 		}
 	}
-	b.ensureWarningMessage(guildID, sub.HoneypotChannelID)
-	b.replyEphemeral(e, fmt.Sprintf("🍯 Honeypot configured: <#%d>, action **%s**.", sub.HoneypotChannelID, sub.Action))
+	if b.ensureWarningMessage(guildID, sub.HoneypotChannelID) {
+		b.replyEphemeral(e, fmt.Sprintf("🍯 Honeypot configured: <#%d>, action **%s**.", sub.HoneypotChannelID, sub.Action))
+	} else {
+		b.replyEphemeral(e, fmt.Sprintf("🍯 Honeypot configured: <#%d>, action **%s**.\n⚠️ I couldn't post the warning message in the honeypot channel — check my View/Send permissions there.", sub.HoneypotChannelID, sub.Action))
+	}
 }
 
 // ensureWarningMessage posts the persistent warning (with counter button) if
 // the channel has none recorded, otherwise refreshes the counter label.
-func (b *Bot) ensureWarningMessage(guildID, channelID snowflake.ID) {
+// It returns true when the warning message is confirmed posted or updated
+// (with its msg_id stored or already current), and false on any failure.
+func (b *Bot) ensureWarningMessage(guildID, channelID snowflake.ID) bool {
 	ch, err := b.Store.GetChannelByID(channelID)
 	if err != nil || ch == nil {
-		return
+		return false
 	}
 	count, err := b.Store.CountEventsByGuild(guildID)
 	if err != nil {
 		b.Log.Error("counting events", "err", err)
-		return
+		return false
 	}
 	components := []discord.LayoutComponent{
 		discord.NewActionRow(
@@ -167,7 +175,7 @@ func (b *Bot) ensureWarningMessage(guildID, channelID snowflake.ID) {
 	}
 	if ch.MsgID != nil {
 		if _, err := b.Client.Rest.UpdateMessage(channelID, *ch.MsgID, discord.MessageUpdate{Components: &components}); err == nil {
-			return
+			return true
 		}
 		// Message gone (deleted manually) — fall through and repost.
 	}
@@ -177,11 +185,13 @@ func (b *Bot) ensureWarningMessage(guildID, channelID snowflake.ID) {
 	})
 	if err != nil {
 		b.Log.Error("posting warning message", "channel", channelID, "err", err)
-		return
+		return false
 	}
 	if err := b.Store.SetWarningMsg(channelID, &msg.ID); err != nil {
 		b.Log.Error("storing warning msg id", "err", err)
+		return false
 	}
+	return true
 }
 
 func (b *Bot) botPermissionsIn(guildID, channelID snowflake.ID) discord.Permissions {

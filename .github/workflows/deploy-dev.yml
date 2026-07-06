@@ -17,6 +17,9 @@ permissions:
   checks: read
   statuses: read
 
+concurrency:
+  group: deploy-dev
+
 jobs:
   deploy:
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.issue.pull_request }}
@@ -30,9 +33,6 @@ jobs:
         with:
           trigger: ".deploy"
           environment: development
-      - name: Gate on branch-deploy continue
-        if: ${{ github.event_name == 'issue_comment' && steps.branch-deploy.outputs.continue != 'true' }}
-        run: echo "branch-deploy did not continue" && exit 0
       - uses: actions/checkout@v4
         if: ${{ github.event_name == 'workflow_dispatch' || steps.branch-deploy.outputs.continue == 'true' }}
         with:

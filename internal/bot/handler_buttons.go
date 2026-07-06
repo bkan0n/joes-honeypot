@@ -37,6 +37,7 @@ func (b *Bot) onComponent(e *events.ComponentInteractionCreate) {
 		count, err := b.Store.CountEventsByGuild(guildID)
 		if err != nil {
 			b.Log.Error("counting events", "err", err)
+			b.replyEphemeral(e, "Couldn't fetch stats, try again.")
 			return
 		}
 		b.replyEphemeral(e, fmt.Sprintf("🍯 **%d** users have been honeypot'd in this server.", count))
@@ -45,6 +46,9 @@ func (b *Bot) onComponent(e *events.ComponentInteractionCreate) {
 		if m := e.Member(); m == nil || !m.Permissions.Has(discord.PermissionManageMessages) {
 			b.replyEphemeral(e, "You need the **Manage Messages** permission to delete this.")
 			return
+		}
+		if err := e.DeferUpdateMessage(); err != nil {
+			b.Log.Warn("acknowledging intro delete", "err", err)
 		}
 		if err := b.Client.Rest.DeleteMessage(e.Message.ChannelID, e.Message.ID); err != nil {
 			b.Log.Warn("deleting intro message", "err", err)

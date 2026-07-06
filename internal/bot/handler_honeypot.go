@@ -63,6 +63,7 @@ func (b *Bot) onCommand(e *events.ApplicationCommandInteractionCreate) {
 	cfg, err := b.Store.GetConfig(*e.GuildID())
 	if err != nil {
 		b.Log.Error("loading config for modal", "guild", *e.GuildID(), "err", err)
+		b.replyEphemeral(e, "Something went wrong loading the config.")
 		return
 	}
 	if err := e.Modal(configModal(cfg)); err != nil {
@@ -117,6 +118,12 @@ func (b *Bot) onModalSubmit(e *events.ModalSubmitInteractionCreate) {
 	}
 	if actions := e.Data.StringValues(actionCID); len(actions) == 1 {
 		sub.Action = store.Action(actions[0])
+	}
+	switch sub.Action {
+	case store.ActionSoftban, store.ActionBan, store.ActionDisabled:
+	default:
+		b.replyEphemeral(e, "Unknown action selected. No settings have been changed.")
+		return
 	}
 
 	var userPerms discord.Permissions

@@ -41,6 +41,7 @@ func New(token string, st *store.Store, log *slog.Logger) (*Bot, error) {
 		dbot.WithEventListenerFunc(b.onCommand),
 		dbot.WithEventListenerFunc(b.onModalSubmit),
 		dbot.WithEventListenerFunc(b.onMessageCreate),
+		dbot.WithEventListenerFunc(b.onComponent),
 	}
 	opts := append([]dbot.ConfigOpt{
 		dbot.WithGatewayConfigOpts(

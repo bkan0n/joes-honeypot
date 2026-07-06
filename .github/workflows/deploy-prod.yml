@@ -1,0 +1,44 @@
+name: Deploy Production
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+
+concurrency:
+  group: deploy-prod
+
+jobs:
+  lint:
+    uses: ./.github/workflows/lint.yml
+    with:
+      ref: ${{ github.sha }}
+  tests:
+    uses: ./.github/workflows/tests.yml
+    with:
+      ref: ${{ github.sha }}
+  deploy:
+    needs: [lint, tests]
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SERVER_HOST_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+      - name: Add remote host to known_hosts
+        run: ssh-keyscan -H ${{ secrets.SERVER_HOST_IP }} >> ~/.ssh/known_hosts
+      - name: Set up Docker context
+        run: |
+          docker context create prod-server \
+            --docker "host=ssh://${{ secrets.SERVER_HOST_USER }}@${{ secrets.SERVER_HOST_IP }}"
+          docker context use prod-server
+      - name: Deploy
+        run: docker compose -f docker-compose.prod.yml up -d --build --force-recreate
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}

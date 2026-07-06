@@ -1,0 +1,59 @@
+name: Deploy Development
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to deploy
+        required: true
+        default: main
+  issue_comment:
+    types: [created]
+
+permissions:
+  pull-requests: write
+  deployments: write
+  contents: write
+  checks: read
+  statuses: read
+
+jobs:
+  deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.issue.pull_request }}
+    runs-on: ubuntu-latest
+    environment: development
+    steps:
+      - name: Branch deploy trigger
+        id: branch-deploy
+        if: ${{ github.event_name == 'issue_comment' }}
+        uses: github/branch-deploy@v11.0.0
+        with:
+          trigger: ".deploy"
+          environment: development
+      - name: Gate on branch-deploy continue
+        if: ${{ github.event_name == 'issue_comment' && steps.branch-deploy.outputs.continue != 'true' }}
+        run: echo "branch-deploy did not continue" && exit 0
+      - uses: actions/checkout@v4
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.branch-deploy.outputs.continue == 'true' }}
+        with:
+          ref: ${{ steps.branch-deploy.outputs.sha || inputs.ref }}
+      - name: Set up SSH key
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.branch-deploy.outputs.continue == 'true' }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SERVER_HOST_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+      - name: Add remote host to known_hosts
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.branch-deploy.outputs.continue == 'true' }}
+        run: ssh-keyscan -H ${{ secrets.SERVER_HOST_IP }} >> ~/.ssh/known_hosts
+      - name: Set up Docker context
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.branch-deploy.outputs.continue == 'true' }}
+        run: |
+          docker context create dev-server \
+            --docker "host=ssh://${{ secrets.SERVER_HOST_USER }}@${{ secrets.SERVER_HOST_IP }}"
+          docker context use dev-server
+      - name: Deploy
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.branch-deploy.outputs.continue == 'true' }}
+        run: docker compose -f docker-compose.dev.yml up -d --build --force-recreate
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}

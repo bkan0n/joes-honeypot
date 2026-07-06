@@ -7,11 +7,11 @@ import (
 
 func TestNormalize(t *testing.T) {
 	cases := map[string]string{
-		"honeypot":  "honeypot",
-		"hоneypоt":  "honeypot", // Cyrillic о (U+043E)
-		"һοnеурοt":  "honeypot", // mixed Cyrillic/Greek lookalikes
-		"HONEYPOT":  "honeypot",
-		"general":   "general",
+		"honeypot": "honeypot",
+		"hоneypоt": "honeypot", // Cyrillic о (U+043E)
+		"һοnеурοt": "honeypot", // mixed Cyrillic/Greek lookalikes
+		"HONEYPOT": "honeypot",
+		"general":  "general",
 	}
 	for in, want := range cases {
 		if got := Normalize(in); got != want {

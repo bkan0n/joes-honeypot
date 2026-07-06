@@ -199,6 +199,13 @@ func (b *Bot) botPermissionsIn(guildID, channelID snowflake.ID) discord.Permissi
 	if !ok {
 		return 0
 	}
+	return b.botPermissionsInChannel(guildID, ch)
+}
+
+// botPermissionsInChannel computes the bot's permissions in a channel object
+// that's already in hand (e.g. freshly returned from a REST call), avoiding a
+// cache lookup that may not be populated yet.
+func (b *Bot) botPermissionsInChannel(guildID snowflake.ID, ch discord.GuildChannel) discord.Permissions {
 	member, err := b.Client.Rest.GetMember(guildID, b.Client.ID())
 	if err != nil || member == nil {
 		return 0

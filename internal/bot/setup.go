@@ -6,7 +6,6 @@ import (
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
-	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/bkan0n/joeshoneypot/internal/store"
 )
@@ -32,14 +31,14 @@ func (b *Bot) onGuildJoin(e *events.GuildJoin) {
 		return
 	}
 
-	var honeypotID snowflake.ID
+	var honeypot discord.GuildChannel
 	for _, ch := range channels {
 		if ch.Type() == discord.ChannelTypeGuildText && Normalize(ch.Name()) == "honeypot" {
-			honeypotID = ch.ID()
+			honeypot = ch
 			break
 		}
 	}
-	if honeypotID == 0 {
+	if honeypot == nil {
 		name := Obfuscate("honeypot", rand.New(rand.NewSource(time.Now().UnixNano())))
 		created, err := b.Client.Rest.CreateGuildChannel(guildID, discord.GuildTextChannelCreate{
 			Name:     name,
@@ -49,8 +48,9 @@ func (b *Bot) onGuildJoin(e *events.GuildJoin) {
 			b.Log.Error("creating honeypot channel", "guild", guildID, "err", err)
 			return
 		}
-		honeypotID = created.ID()
+		honeypot = created
 	}
+	honeypotID := honeypot.ID()
 
 	if err := b.Store.UpsertConfig(store.Config{GuildID: guildID, Action: store.ActionSoftban}); err != nil {
 		b.Log.Error("saving default config", "err", err)
@@ -58,13 +58,16 @@ func (b *Bot) onGuildJoin(e *events.GuildJoin) {
 	}
 	if err := b.Store.SetChannel(guildID, honeypotID); err != nil {
 		b.Log.Error("saving honeypot channel", "err", err)
+		if delErr := b.Store.DeleteGuild(guildID); delErr != nil {
+			b.Log.Error("rolling back config after failed SetChannel", "guild", guildID, "err", delErr)
+		}
 		return
 	}
 	if !b.ensureWarningMessage(guildID, honeypotID) {
 		b.Log.Warn("posting warning message during auto-setup", "guild", guildID, "channel", honeypotID)
 	}
 
-	missingBan := !b.botPermissionsIn(guildID, honeypotID).Has(discord.PermissionBanMembers)
+	missingBan := !b.botPermissionsInChannel(guildID, honeypot).Has(discord.PermissionBanMembers)
 	intro, err := b.Client.Rest.CreateMessage(honeypotID, discord.MessageCreate{
 		Content: IntroMessage(missingBan),
 		Components: []discord.LayoutComponent{

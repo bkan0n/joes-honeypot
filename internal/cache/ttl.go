@@ -39,6 +39,18 @@ func (c *TTL[K, V]) Get(k K) (V, bool) {
 	return e.val, true
 }
 
+// SetIfAbsent stores v under k only if k is absent or expired, returning
+// true if it stored. It is the atomic check-and-set used for dedup guards.
+func (c *TTL[K, V]) SetIfAbsent(k K, v V, ttl time.Duration) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if e, ok := c.m[k]; ok && !time.Now().After(e.expiresAt) {
+		return false
+	}
+	c.m[k] = entry[V]{val: v, expiresAt: time.Now().Add(ttl)}
+	return true
+}
+
 func (c *TTL[K, V]) Delete(k K) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

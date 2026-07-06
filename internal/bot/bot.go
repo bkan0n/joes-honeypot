@@ -50,6 +50,7 @@ func New(token string, st *store.Store, log *slog.Logger) (*Bot, error) {
 		dbot.WithCacheConfigOpts(
 			dcache.WithCaches(dcache.FlagGuilds | dcache.FlagRoles | dcache.FlagChannels),
 		),
+		dbot.WithEventManagerConfigOpts(dbot.WithAsyncEventsEnabled()),
 	}, listeners...)
 	client, err := disgo.New(token, opts...)
 	if err != nil {

@@ -32,10 +32,9 @@ func (b *Bot) onMessageCreate(e *events.MessageCreate) {
 	}
 
 	key := dedupKey{GuildID: guildID, UserID: msg.Author.ID}
-	if _, busy := b.Dedup.Get(key); busy {
+	if !b.Dedup.SetIfAbsent(key, struct{}{}, 30*time.Second) {
 		return
 	}
-	b.Dedup.Set(key, struct{}{}, 30*time.Second)
 	defer b.Dedup.Delete(key) // allow re-punishing a rejoining user
 
 	// Best-effort honey react.
@@ -67,7 +66,11 @@ func (b *Bot) onMessageCreate(e *events.MessageCreate) {
 	}
 
 	if IsExempt(msg.Author.ID, ownerID, memberRoles, adminRoles) {
-		go func() { _ = b.dmUser(msg.Author.ID, ExemptDMMessage(guildName)) }()
+		go func() {
+			if err := b.dmUser(msg.Author.ID, ExemptDMMessage(guildName)); err != nil {
+				b.Log.Debug("exempt dm failed", "user", msg.Author.ID, "err", err)
+			}
+		}()
 		b.sendLog(cfg, e.ChannelID, discord.MessageCreate{Content: ExemptLogMessage(msg.Author.ID)})
 		return
 	}

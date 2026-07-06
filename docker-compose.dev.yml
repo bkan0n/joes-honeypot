@@ -1,0 +1,15 @@
+services:
+  joes-honeypot-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: joes-honeypot-dev
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN}
+      DB_PATH: /data/honeypot.db
+    volumes:
+      - joes_honeypot_dev_data:/data
+    restart: unless-stopped
+
+volumes:
+  joes_honeypot_dev_data:

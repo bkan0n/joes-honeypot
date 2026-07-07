@@ -1,0 +1,160 @@
+package bot
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/rest"
+	"github.com/disgoorg/snowflake/v2"
+)
+
+// warningMessagePrefix identifies a bot-authored message as our persistent
+// warning post, used both to detect a stale message (see selectWarningMessage)
+// and, indirectly, as the start of warningMessage's content.
+const warningMessagePrefix = "## ⚠️"
+
+// ensureWarningMessage posts the persistent warning (with counter button) if
+// the channel has none recorded, otherwise refreshes the counter label.
+// It returns nil when the warning message is confirmed posted or updated
+// (with its msg_id stored or already current).
+func (b *Bot) ensureWarningMessage(guildID, channelID snowflake.ID) error {
+	ch, err := b.store.GetChannelByID(channelID)
+	if err != nil {
+		return fmt.Errorf("loading channel: %w", err)
+	}
+	if ch == nil {
+		return fmt.Errorf("channel %d is not a registered honeypot channel", channelID)
+	}
+	count, err := b.store.CountEventsByGuild(b.ctx, guildID)
+	if err != nil {
+		return fmt.Errorf("counting events: %w", err)
+	}
+	components := warningMessageComponents(count)
+	if ch.MsgID != nil {
+		if err := b.updateWarningMessage(channelID, *ch.MsgID, components); err == nil {
+			return nil
+		}
+		// Message gone (deleted manually) — fall through and repost.
+	}
+
+	// No msg_id on record — before posting a new warning message, check
+	// whether the bot already left one behind (e.g. a rejoin, or a restart
+	// racing a stale DB write). If so, adopt the oldest and clean up
+	// duplicates instead of spamming another one.
+	if recent, err := b.client.Rest.GetMessages(channelID, 0, 0, 0, 50, rest.WithCtx(b.ctx)); err != nil {
+		b.log.Warn("listing messages for warning-message dedup", "channel", channelID, "err", err)
+	} else if adopt, extras := selectWarningMessage(recent, b.client.ID()); adopt != nil {
+		if err := b.updateWarningMessage(channelID, adopt.ID, components); err != nil {
+			b.log.Warn("updating adopted warning message", "channel", channelID, "msg", adopt.ID, "err", err)
+		}
+		if err := b.store.SetWarningMsg(b.ctx, channelID, &adopt.ID); err != nil {
+			return fmt.Errorf("storing adopted warning msg id: %w", err)
+		}
+		for _, extra := range extras {
+			if err := b.client.Rest.DeleteMessage(channelID, extra.ID, rest.WithCtx(b.ctx)); err != nil {
+				b.log.Warn("deleting duplicate warning message", "channel", channelID, "msg", extra.ID, "err", err)
+			}
+		}
+		return nil
+	}
+
+	msg, err := b.client.Rest.CreateMessage(channelID, discord.MessageCreate{
+		Flags:      discord.MessageFlagIsComponentsV2,
+		Components: components,
+	}, rest.WithCtx(b.ctx))
+	if err != nil {
+		return fmt.Errorf("posting warning message: %w", err)
+	}
+	if err := b.store.SetWarningMsg(b.ctx, channelID, &msg.ID); err != nil {
+		return fmt.Errorf("storing warning msg id: %w", err)
+	}
+	return nil
+}
+
+// updateWarningMessage edits an existing message in place into the current
+// Components-V2 warning layout. It first tries a plain components update
+// (the message is already CV2), then retries with the CV2 flag set and the
+// content cleared, which converts a legacy plain-content warning message.
+func (b *Bot) updateWarningMessage(channelID, msgID snowflake.ID, components []discord.LayoutComponent) error {
+	if _, err := b.client.Rest.UpdateMessage(channelID, msgID, discord.MessageUpdate{
+		Components: &components,
+	}, rest.WithCtx(b.ctx)); err == nil {
+		return nil
+	}
+	empty := ""
+	flags := discord.MessageFlagIsComponentsV2
+	_, err := b.client.Rest.UpdateMessage(channelID, msgID, discord.MessageUpdate{
+		Content:    &empty,
+		Flags:      &flags,
+		Components: &components,
+	}, rest.WithCtx(b.ctx))
+	return err
+}
+
+// isWarningMessage reports whether a message looks like our persistent
+// warning post, in either the legacy plain-content format or the
+// Components-V2 format (warning text inside a TextDisplay).
+func isWarningMessage(m discord.Message) bool {
+	if strings.HasPrefix(m.Content, warningMessagePrefix) {
+		return true
+	}
+	for _, c := range m.Components {
+		if componentHasWarningPrefix(c) {
+			return true
+		}
+	}
+	return false
+}
+
+func componentHasWarningPrefix(c discord.Component) bool {
+	switch cc := c.(type) {
+	case discord.TextDisplayComponent:
+		return strings.HasPrefix(cc.Content, warningMessagePrefix)
+	case discord.ContainerComponent:
+		for _, sub := range cc.Components {
+			if componentHasWarningPrefix(sub) {
+				return true
+			}
+		}
+	case discord.SectionComponent:
+		for _, sub := range cc.Components {
+			if componentHasWarningPrefix(sub) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// selectWarningMessage scans a channel's recent messages for ones the bot
+// itself posted that look like our persistent warning message (see
+// isWarningMessage). It returns the oldest match to adopt (its ID gets stored
+// as the tracked warning message) and any remaining matches as extras that
+// should be deleted as duplicates. msgs is not assumed to be in any
+// particular order (GetMessages returns newest-first, but this doesn't rely
+// on that).
+func selectWarningMessage(msgs []discord.Message, botID snowflake.ID) (adopt *discord.Message, extras []discord.Message) {
+	var matches []discord.Message
+	for _, m := range msgs {
+		if m.Author.ID == botID && isWarningMessage(m) {
+			matches = append(matches, m)
+		}
+	}
+	if len(matches) == 0 {
+		return nil, nil
+	}
+	oldest := 0
+	for i, m := range matches {
+		if m.ID < matches[oldest].ID {
+			oldest = i
+		}
+	}
+	chosen := matches[oldest]
+	for i, m := range matches {
+		if i != oldest {
+			extras = append(extras, m)
+		}
+	}
+	return &chosen, extras
+}

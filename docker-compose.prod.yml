@@ -1,15 +1,37 @@
 services:
   joes-honeypot:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/bkan0n/joes-honeypot:${IMAGE_TAG:-latest}
     container_name: joes-honeypot
     environment:
       BOT_TOKEN: ${BOT_TOKEN}
       DB_PATH: /data/honeypot.db
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - joes_honeypot_prod_data:/data
     restart: unless-stopped
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # CLI-only config: bind mounts don't resolve over the remote Docker deploy context.
+  litestream:
+    image: litestream/litestream:0.3.13
+    container_name: joes-honeypot-litestream
+    command: replicate /data/honeypot.db ${LITESTREAM_REPLICA_URL:?}
+    environment:
+      LITESTREAM_ACCESS_KEY_ID: ${LITESTREAM_ACCESS_KEY_ID:?}
+      LITESTREAM_SECRET_ACCESS_KEY: ${LITESTREAM_SECRET_ACCESS_KEY:?}
+    volumes:
+      - joes_honeypot_prod_data:/data
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   joes_honeypot_prod_data:

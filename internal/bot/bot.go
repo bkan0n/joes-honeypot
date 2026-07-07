@@ -1,3 +1,4 @@
+// Package bot implements Joe's Honeypot's Discord behavior.
 package bot
 
 import (
@@ -7,8 +8,10 @@ import (
 	"github.com/disgoorg/disgo"
 	dbot "github.com/disgoorg/disgo/bot"
 	dcache "github.com/disgoorg/disgo/cache"
+	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/gateway"
 	"github.com/disgoorg/disgo/handler"
+	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/bkan0n/joeshoneypot/internal/cache"
@@ -21,21 +24,31 @@ type dedupKey struct {
 }
 
 type Bot struct {
-	Client *dbot.Client
-	Store  *store.Store
-	Log    *slog.Logger
-	Dedup  *cache.TTL[dedupKey, struct{}]
-	DMs    *cache.TTL[snowflake.ID, snowflake.ID]
+	client *dbot.Client
+	store  *store.Store
+	log    *slog.Logger
+	dedup  *cache.TTL[dedupKey, struct{}]
+	dms    *cache.TTL[snowflake.ID, snowflake.ID]
 
-	ownerID snowflake.ID // bot application owner, allowed to use "@bot refresh"
+	selfMembers *cache.TTL[snowflake.ID, discord.Member] // bot's own member per guild, for permission checks
+	ownerID     snowflake.ID                             // bot application owner, allowed to use "@bot refresh"
+
+	// ctx spans the bot's lifetime; Close cancels it, aborting in-flight
+	// REST and DB work in handler goroutines so shutdown stays bounded.
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 func New(token string, st *store.Store, log *slog.Logger) (*Bot, error) {
+	ctx, cancel := context.WithCancel(context.Background())
 	b := &Bot{
-		Store: st,
-		Log:   log,
-		Dedup: cache.NewTTL[dedupKey, struct{}](),
-		DMs:   cache.NewTTL[snowflake.ID, snowflake.ID](),
+		store:       st,
+		log:         log,
+		dedup:       cache.NewTTL[dedupKey, struct{}](),
+		dms:         cache.NewTTL[snowflake.ID, snowflake.ID](),
+		selfMembers: cache.NewTTL[snowflake.ID, discord.Member](),
+		ctx:         ctx,
+		cancel:      cancel,
 	}
 	// Event listeners are appended here by the handler files (handler_*.go,
 	// setup.go, housekeeping.go) as they are implemented.
@@ -51,6 +64,9 @@ func New(token string, st *store.Store, log *slog.Logger) (*Bot, error) {
 		dbot.WithEventListenerFunc(b.onGuildLeave),
 	}
 	opts := append([]dbot.ConfigOpt{
+		// disgo defaults to slog.Default(); without this, gateway reconnects
+		// and rate-limit hits would bypass the LOG_LEVEL-controlled logger.
+		dbot.WithLogger(log),
 		dbot.WithGatewayConfigOpts(
 			gateway.WithIntents(gateway.IntentGuilds|gateway.IntentGuildMessages),
 			gateway.WithPresenceOpts(gateway.WithWatchingActivity("#honeypot for bots")),
@@ -62,24 +78,26 @@ func New(token string, st *store.Store, log *slog.Logger) (*Bot, error) {
 	}, listeners...)
 	client, err := disgo.New(token, opts...)
 	if err != nil {
+		cancel()
 		return nil, err
 	}
-	b.Client = client
+	b.client = client
 	return b, nil
 }
 
 func (b *Bot) Start(ctx context.Context) error {
-	if app, err := b.Client.Rest.GetBotApplicationInfo(); err != nil {
-		b.Log.Warn("fetching application owner; @refresh command disabled", "err", err)
+	if app, err := b.client.Rest.GetBotApplicationInfo(rest.WithCtx(ctx)); err != nil {
+		b.log.Warn("fetching application owner; @refresh command disabled", "err", err)
 	} else if app.Owner != nil {
 		b.ownerID = app.Owner.ID
 	}
-	if err := handler.SyncCommands(b.Client, commands(), nil); err != nil {
+	if err := handler.SyncCommands(b.client, commands(), nil); err != nil {
 		return err
 	}
-	return b.Client.OpenGateway(ctx)
+	return b.client.OpenGateway(ctx)
 }
 
 func (b *Bot) Close(ctx context.Context) {
-	b.Client.Close(ctx)
+	b.cancel() // abort in-flight handler work before closing the client
+	b.client.Close(ctx)
 }

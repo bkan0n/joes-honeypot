@@ -10,39 +10,39 @@ import (
 )
 
 func TestDMMessage(t *testing.T) {
-	dm := DMMessage(store.ActionSoftban, "My Server")
+	dm := dmMessage(store.ActionSoftban, "My Server")
 	if !strings.Contains(dm, "kicked") || !strings.Contains(dm, "My Server") {
 		t.Fatalf("softban DM wrong: %q", dm)
 	}
-	if dm := DMMessage(store.ActionBan, "My Server"); !strings.Contains(dm, "banned") {
+	if dm := dmMessage(store.ActionBan, "My Server"); !strings.Contains(dm, "banned") {
 		t.Fatalf("ban DM wrong: %q", dm)
 	}
 }
 
 func TestLogMessage(t *testing.T) {
-	msg := LogMessage(42, store.ActionBan)
+	msg := logMessage(42, store.ActionBan)
 	if !strings.Contains(msg, "<@42>") || !strings.Contains(msg, "banned") {
 		t.Fatalf("log message wrong: %q", msg)
 	}
 }
 
 func TestCounterButtonLabel(t *testing.T) {
-	if got := CounterButtonLabel(0); got != "0 Kicked" {
+	if got := counterButtonLabel(0); got != "0 Kicked" {
 		t.Fatalf("got %q", got)
 	}
-	if got := CounterButtonLabel(7); got != "7 Kicked" {
+	if got := counterButtonLabel(7); got != "7 Kicked" {
 		t.Fatalf("got %q", got)
 	}
 }
 
 func TestWarningMessageHasNoEmDash(t *testing.T) {
-	if strings.Contains(WarningMessage(), "—") {
-		t.Fatalf("warning message contains an em dash: %q", WarningMessage())
+	if strings.Contains(warningMessage(), "—") {
+		t.Fatalf("warning message contains an em dash: %q", warningMessage())
 	}
 }
 
 func TestWarningMessageComponents(t *testing.T) {
-	comps := WarningMessageComponents(3)
+	comps := warningMessageComponents(3)
 	if len(comps) != 1 {
 		t.Fatalf("expected a single top-level container, got %d components", len(comps))
 	}
@@ -55,7 +55,7 @@ func TestWarningMessageComponents(t *testing.T) {
 		switch c := sub.(type) {
 		case discord.SectionComponent:
 			for _, sc := range c.Components {
-				if td, ok := sc.(discord.TextDisplayComponent); ok && td.Content == WarningMessage() {
+				if td, ok := sc.(discord.TextDisplayComponent); ok && td.Content == warningMessage() {
 					haveText = true
 				}
 			}
@@ -66,6 +66,9 @@ func TestWarningMessageComponents(t *testing.T) {
 			for _, rc := range c.Components {
 				if btn, ok := rc.(discord.ButtonComponent); ok && btn.Label == "3 Kicked" {
 					haveButton = true
+					if !btn.Disabled {
+						t.Error("counter button must be disabled (display only)")
+					}
 				}
 			}
 		}
@@ -76,10 +79,10 @@ func TestWarningMessageComponents(t *testing.T) {
 }
 
 func TestIntroMessage(t *testing.T) {
-	if !strings.Contains(IntroMessage(true), "Ban Members") {
+	if !strings.Contains(introMessage(true), "Ban Members") {
 		t.Fatal("intro should warn about missing Ban Members permission")
 	}
-	if strings.Contains(IntroMessage(false), "Ban Members permission") {
+	if strings.Contains(introMessage(false), "Ban Members permission") {
 		t.Fatal("intro should not warn when permission present")
 	}
 }

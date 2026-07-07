@@ -34,24 +34,29 @@ func (b *Bot) onComponent(e *events.ComponentInteractionCreate) {
 
 	switch {
 	case data.CustomID() == counterButtonCID:
-		count, err := b.Store.CountEventsByGuild(guildID)
-		if err != nil {
-			b.Log.Error("counting events", "err", err)
-			b.replyEphemeral(e, "Couldn't fetch stats, try again.")
+		// The counter button is display-only now, but messages rendered
+		// before that change (or stale client caches) can still deliver a
+		// click. Without an ack the user sees "This interaction failed" —
+		// ack silently, then re-render the warning message into the current
+		// layout, which disables the button in place.
+		if err := e.DeferUpdateMessage(rest.WithCtx(b.ctx)); err != nil {
+			b.log.Warn("acknowledging stale counter button", "guild", guildID, "err", err)
 			return
 		}
-		b.replyEphemeral(e, fmt.Sprintf("🍯 **%d** users have been kicked by the honeypot in this server.", count))
+		if err := b.ensureWarningMessage(guildID, e.Message.ChannelID); err != nil {
+			b.log.Warn("re-rendering warning message after stale counter click", "guild", guildID, "channel", e.Message.ChannelID, "err", err)
+		}
 
 	case data.CustomID() == introDeleteCID:
 		if m := e.Member(); m == nil || !m.Permissions.Has(discord.PermissionManageMessages) {
 			b.replyEphemeral(e, "You need the **Manage Messages** permission to delete this.")
 			return
 		}
-		if err := e.DeferUpdateMessage(); err != nil {
-			b.Log.Warn("acknowledging intro delete", "err", err)
+		if err := e.DeferUpdateMessage(rest.WithCtx(b.ctx)); err != nil {
+			b.log.Warn("acknowledging intro delete", "err", err)
 		}
-		if err := b.Client.Rest.DeleteMessage(e.Message.ChannelID, e.Message.ID); err != nil {
-			b.Log.Warn("deleting intro message", "err", err)
+		if err := b.client.Rest.DeleteMessage(e.Message.ChannelID, e.Message.ID, rest.WithCtx(b.ctx)); err != nil {
+			b.log.Warn("deleting intro message", "err", err)
 		}
 
 	default:
@@ -63,20 +68,21 @@ func (b *Bot) onComponent(e *events.ComponentInteractionCreate) {
 			b.replyEphemeral(e, "You need the **Ban Members** permission to unban.")
 			return
 		}
-		if UnbanExpired(e.Message.CreatedAt, time.Now()) {
+		if unbanExpired(e.Message.CreatedAt, time.Now()) {
 			b.replyEphemeral(e, "This unban button has expired (24h). Unban the user manually in Server Settings → Bans.")
 			return
 		}
-		err := b.Client.Rest.DeleteBan(guildID, userID,
-			rest.WithReason(fmt.Sprintf("Joe's Honeypot: unban button clicked by %s", e.User().Username)))
+		err := b.client.Rest.DeleteBan(guildID, userID,
+			rest.WithReason(fmt.Sprintf("Joe's Honeypot: unban button clicked by %s", e.User().Username)),
+			rest.WithCtx(b.ctx))
 		if err != nil {
 			b.replyEphemeral(e, fmt.Sprintf("Failed to unban <@%d>: %s", userID, err))
 			return
 		}
 		if err := e.CreateMessage(discord.MessageCreate{
 			Content: fmt.Sprintf("🔓 <@%d> was unbanned by <@%d>.", userID, e.User().ID),
-		}); err != nil {
-			b.Log.Error("unban announcement", "err", err)
+		}, rest.WithCtx(b.ctx)); err != nil {
+			b.log.Error("unban announcement", "err", err)
 		}
 	}
 }

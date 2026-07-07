@@ -24,6 +24,7 @@ func (b *Bot) onMessageCreate(e *events.MessageCreate) {
 	}
 	hpChannel, err := b.Store.GetChannelByID(e.ChannelID)
 	if err != nil || hpChannel == nil || hpChannel.GuildID != guildID {
+		b.handleMentionRefresh(e)
 		return
 	}
 	cfg, err := b.Store.GetConfig(guildID)

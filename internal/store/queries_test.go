@@ -83,6 +83,38 @@ func TestChannelLifecycle(t *testing.T) {
 	}
 }
 
+func TestAllChannels(t *testing.T) {
+	s := openTest(t)
+	if chans, err := s.AllChannels(); err != nil || len(chans) != 0 {
+		t.Fatalf("empty AllChannels = %v, %v; want empty, nil", chans, err)
+	}
+	for i, guild := range []snowflake.ID{g, g + 1} {
+		if err := s.UpsertConfig(Config{GuildID: guild, Action: ActionSoftban}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetChannel(guild, ch+snowflake.ID(i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.SetWarningMsg(ch, ptr(555)); err != nil {
+		t.Fatal(err)
+	}
+	chans, err := s.AllChannels()
+	if err != nil || len(chans) != 2 {
+		t.Fatalf("AllChannels = %v, %v; want 2 rows", chans, err)
+	}
+	byID := map[snowflake.ID]Channel{}
+	for _, c := range chans {
+		byID[c.ChannelID] = c
+	}
+	if c := byID[ch]; c.GuildID != g || c.MsgID == nil || *c.MsgID != 555 {
+		t.Fatalf("channel %d row wrong: %+v", ch, c)
+	}
+	if c := byID[ch+1]; c.GuildID != g+1 || c.MsgID != nil {
+		t.Fatalf("channel %d row wrong: %+v", ch+1, c)
+	}
+}
+
 func TestEventsAndCascade(t *testing.T) {
 	s := openTest(t)
 	if err := s.UpsertConfig(Config{GuildID: g, Action: ActionSoftban}); err != nil {

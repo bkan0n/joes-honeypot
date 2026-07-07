@@ -3,10 +3,13 @@ package bot
 import (
 	"fmt"
 
+	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/bkan0n/joeshoneypot/internal/store"
 )
+
+const warningIconURL = "https://cdn.bkan0n.com/assets/joehoneypot/icon.png"
 
 func actionVerb(action store.Action) string {
 	if action == store.ActionBan {
@@ -17,8 +20,24 @@ func actionVerb(action store.Action) string {
 
 func WarningMessage() string {
 	return "## ⚠️ DO NOT SEND MESSAGES IN THIS CHANNEL\n" +
-		"Anyone who posts here is **automatically banned** — no exceptions, no warnings.\n" +
+		"Anyone who posts here is **automatically banned**. No exceptions, no warnings.\n" +
 		"-# This channel is a honeypot for catching spam bots."
+}
+
+// WarningMessageComponents builds the Components-V2 layout of the persistent
+// warning message: a container holding the warning text with the bot icon as
+// a section thumbnail, and the kick-counter button.
+func WarningMessageComponents(count int64) []discord.LayoutComponent {
+	return []discord.LayoutComponent{
+		discord.NewContainer(
+			discord.NewSection(
+				discord.NewTextDisplay(WarningMessage()),
+			).WithAccessory(discord.NewThumbnail(warningIconURL)),
+			discord.NewActionRow(
+				discord.NewSecondaryButton(CounterButtonLabel(count), counterButtonCID),
+			),
+		),
+	}
 }
 
 func DMMessage(action store.Action, guildName string) string {
@@ -58,5 +77,5 @@ func IntroMessage(missingBanPerm bool) string {
 }
 
 func CounterButtonLabel(count int64) string {
-	return fmt.Sprintf("%d users honeypot'd", count)
+	return fmt.Sprintf("%d Kicked", count)
 }

@@ -40,7 +40,7 @@ func (b *Bot) onComponent(e *events.ComponentInteractionCreate) {
 			b.replyEphemeral(e, "Couldn't fetch stats, try again.")
 			return
 		}
-		b.replyEphemeral(e, fmt.Sprintf("🍯 **%d** users have been honeypot'd in this server.", count))
+		b.replyEphemeral(e, fmt.Sprintf("🍯 **%d** users have been kicked by the honeypot in this server.", count))
 
 	case data.CustomID() == introDeleteCID:
 		if m := e.Member(); m == nil || !m.Permissions.Has(discord.PermissionManageMessages) {

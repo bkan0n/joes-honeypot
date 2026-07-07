@@ -6,6 +6,7 @@ import (
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
+	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/bkan0n/joeshoneypot/internal/store"
@@ -60,7 +61,7 @@ func (b *Bot) onCommand(e *events.ApplicationCommandInteractionCreate) {
 		b.replyEphemeral(e, "Something went wrong loading the config.")
 		return
 	}
-	if err := e.Modal(configModal(cfg)); err != nil {
+	if err := e.Modal(configModal(cfg), rest.WithCtx(b.ctx)); err != nil {
 		b.log.Error("sending config modal", "err", err)
 	}
 }
@@ -82,7 +83,7 @@ func (b *Bot) onModalSubmit(e *events.ModalSubmitInteractionCreate) {
 	// interaction deadline. After deferring, a normal interaction response is
 	// no longer allowed — every exit path below must edit the deferred reply
 	// (editDeferredReply), never b.replyEphemeral.
-	if err := e.DeferCreateMessage(true); err != nil {
+	if err := e.DeferCreateMessage(true, rest.WithCtx(b.ctx)); err != nil {
 		b.log.Error("deferring modal response", "guild", guildID, "err", err)
 		return
 	}
@@ -131,7 +132,7 @@ func (b *Bot) onModalSubmit(e *events.ModalSubmitInteractionCreate) {
 	}
 	// Channel changed: delete the old warning message, post one in the new channel.
 	if prev != nil && prev.ChannelID != sub.HoneypotChannelID && prev.MsgID != nil {
-		if err := b.client.Rest.DeleteMessage(prev.ChannelID, *prev.MsgID); err != nil {
+		if err := b.client.Rest.DeleteMessage(prev.ChannelID, *prev.MsgID, rest.WithCtx(b.ctx)); err != nil {
 			b.log.Warn("deleting old warning message", "err", err)
 		}
 	}

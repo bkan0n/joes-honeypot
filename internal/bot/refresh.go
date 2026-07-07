@@ -6,6 +6,7 @@ import (
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
+	"github.com/disgoorg/disgo/rest"
 )
 
 // handleMentionRefresh implements "@bot refresh": when the bot owner mentions
@@ -45,7 +46,7 @@ func (b *Bot) handleMentionRefresh(e *events.MessageCreate) {
 	}
 	if _, err := b.client.Rest.CreateMessage(e.ChannelID, discord.MessageCreate{
 		Content: fmt.Sprintf("🍯 Refreshed the warning message in %d/%d guilds.", updated, len(channels)),
-	}); err != nil {
+	}, rest.WithCtx(b.ctx)); err != nil {
 		b.log.Warn("acking mention refresh", "err", err)
 	}
 }

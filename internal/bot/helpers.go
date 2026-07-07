@@ -31,7 +31,7 @@ func (b *Bot) botPermissionsIn(guildID, channelID snowflake.ID) discord.Permissi
 func (b *Bot) botPermissionsInChannel(guildID snowflake.ID, ch discord.GuildChannel) discord.Permissions {
 	member, ok := b.selfMembers.Get(guildID)
 	if !ok {
-		m, err := b.client.Rest.GetMember(guildID, b.client.ID())
+		m, err := b.client.Rest.GetMember(guildID, b.client.ID(), rest.WithCtx(b.ctx))
 		if err != nil || m == nil {
 			return 0
 		}
@@ -48,7 +48,7 @@ type interactionReplier interface {
 }
 
 func (b *Bot) replyEphemeral(e interactionReplier, content string) {
-	if err := e.CreateMessage(discord.MessageCreate{Content: content, Flags: discord.MessageFlagEphemeral}); err != nil {
+	if err := e.CreateMessage(discord.MessageCreate{Content: content, Flags: discord.MessageFlagEphemeral}, rest.WithCtx(b.ctx)); err != nil {
 		b.log.Error("sending ephemeral reply", "err", err)
 	}
 }
@@ -59,7 +59,7 @@ func (b *Bot) replyEphemeral(e interactionReplier, content string) {
 func (b *Bot) editDeferredReply(e *events.ModalSubmitInteractionCreate, content string) {
 	if _, err := b.client.Rest.UpdateInteractionResponse(e.ApplicationID(), e.Token(), discord.MessageUpdate{
 		Content: &content,
-	}); err != nil {
+	}, rest.WithCtx(b.ctx)); err != nil {
 		b.log.Error("editing deferred interaction response", "err", err)
 	}
 }

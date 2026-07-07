@@ -39,7 +39,7 @@ func (b *Bot) onComponent(e *events.ComponentInteractionCreate) {
 		// click. Without an ack the user sees "This interaction failed" —
 		// ack silently, then re-render the warning message into the current
 		// layout, which disables the button in place.
-		if err := e.DeferUpdateMessage(); err != nil {
+		if err := e.DeferUpdateMessage(rest.WithCtx(b.ctx)); err != nil {
 			b.log.Warn("acknowledging stale counter button", "guild", guildID, "err", err)
 			return
 		}
@@ -52,10 +52,10 @@ func (b *Bot) onComponent(e *events.ComponentInteractionCreate) {
 			b.replyEphemeral(e, "You need the **Manage Messages** permission to delete this.")
 			return
 		}
-		if err := e.DeferUpdateMessage(); err != nil {
+		if err := e.DeferUpdateMessage(rest.WithCtx(b.ctx)); err != nil {
 			b.log.Warn("acknowledging intro delete", "err", err)
 		}
-		if err := b.client.Rest.DeleteMessage(e.Message.ChannelID, e.Message.ID); err != nil {
+		if err := b.client.Rest.DeleteMessage(e.Message.ChannelID, e.Message.ID, rest.WithCtx(b.ctx)); err != nil {
 			b.log.Warn("deleting intro message", "err", err)
 		}
 
@@ -73,14 +73,15 @@ func (b *Bot) onComponent(e *events.ComponentInteractionCreate) {
 			return
 		}
 		err := b.client.Rest.DeleteBan(guildID, userID,
-			rest.WithReason(fmt.Sprintf("Joe's Honeypot: unban button clicked by %s", e.User().Username)))
+			rest.WithReason(fmt.Sprintf("Joe's Honeypot: unban button clicked by %s", e.User().Username)),
+			rest.WithCtx(b.ctx))
 		if err != nil {
 			b.replyEphemeral(e, fmt.Sprintf("Failed to unban <@%d>: %s", userID, err))
 			return
 		}
 		if err := e.CreateMessage(discord.MessageCreate{
 			Content: fmt.Sprintf("🔓 <@%d> was unbanned by <@%d>.", userID, e.User().ID),
-		}); err != nil {
+		}, rest.WithCtx(b.ctx)); err != nil {
 			b.log.Error("unban announcement", "err", err)
 		}
 	}

@@ -9,20 +9,20 @@ import (
 	"github.com/bkan0n/joeshoneypot/internal/store"
 )
 
-// IsTriggerMessage reports whether a message in a honeypot channel should
+// isTriggerMessage reports whether a message in a honeypot channel should
 // trigger moderation: only ordinary messages/replies from non-bot accounts.
 // All system message types (joins, pins, boosts, ...) are excluded.
-func IsTriggerMessage(authorIsBot bool, msgType discord.MessageType) bool {
+func isTriggerMessage(authorIsBot bool, msgType discord.MessageType) bool {
 	if authorIsBot {
 		return false
 	}
 	return msgType == discord.MessageTypeDefault || msgType == discord.MessageTypeReply
 }
 
-// IsExempt reports whether the author must not be actioned: the server owner,
+// isExempt reports whether the author must not be actioned: the server owner,
 // or any member holding a role that roleIsAdmin reports as exempting
 // (see isAdminRole; the caller injects the role-cache lookup).
-func IsExempt(authorID, ownerID snowflake.ID, memberRoleIDs []snowflake.ID, roleIsAdmin func(snowflake.ID) bool) bool {
+func isExempt(authorID, ownerID snowflake.ID, memberRoleIDs []snowflake.ID, roleIsAdmin func(snowflake.ID) bool) bool {
 	if authorID == ownerID {
 		return true
 	}
@@ -41,8 +41,8 @@ func isAdminRole(role discord.Role) bool {
 	return !role.Managed && role.Permissions.Has(discord.PermissionAdministrator)
 }
 
-// UnbanExpired reports whether an unban button is too old to honor (24h).
-func UnbanExpired(messageCreated, now time.Time) bool {
+// unbanExpired reports whether an unban button is too old to honor (24h).
+func unbanExpired(messageCreated, now time.Time) bool {
 	return now.Sub(messageCreated) > 24*time.Hour
 }
 

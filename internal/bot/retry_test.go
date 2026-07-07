@@ -41,7 +41,7 @@ func TestIsTransientRestError(t *testing.T) {
 }
 
 func testBot() *Bot {
-	return &Bot{Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	return &Bot{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 }
 
 func TestRetryTransientSucceedsAfterTransientFailure(t *testing.T) {

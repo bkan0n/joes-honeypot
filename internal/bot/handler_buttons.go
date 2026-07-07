@@ -39,10 +39,10 @@ func (b *Bot) onComponent(e *events.ComponentInteractionCreate) {
 			return
 		}
 		if err := e.DeferUpdateMessage(); err != nil {
-			b.Log.Warn("acknowledging intro delete", "err", err)
+			b.log.Warn("acknowledging intro delete", "err", err)
 		}
-		if err := b.Client.Rest.DeleteMessage(e.Message.ChannelID, e.Message.ID); err != nil {
-			b.Log.Warn("deleting intro message", "err", err)
+		if err := b.client.Rest.DeleteMessage(e.Message.ChannelID, e.Message.ID); err != nil {
+			b.log.Warn("deleting intro message", "err", err)
 		}
 
 	default:
@@ -54,11 +54,11 @@ func (b *Bot) onComponent(e *events.ComponentInteractionCreate) {
 			b.replyEphemeral(e, "You need the **Ban Members** permission to unban.")
 			return
 		}
-		if UnbanExpired(e.Message.CreatedAt, time.Now()) {
+		if unbanExpired(e.Message.CreatedAt, time.Now()) {
 			b.replyEphemeral(e, "This unban button has expired (24h). Unban the user manually in Server Settings → Bans.")
 			return
 		}
-		err := b.Client.Rest.DeleteBan(guildID, userID,
+		err := b.client.Rest.DeleteBan(guildID, userID,
 			rest.WithReason(fmt.Sprintf("Joe's Honeypot: unban button clicked by %s", e.User().Username)))
 		if err != nil {
 			b.replyEphemeral(e, fmt.Sprintf("Failed to unban <@%d>: %s", userID, err))
@@ -67,7 +67,7 @@ func (b *Bot) onComponent(e *events.ComponentInteractionCreate) {
 		if err := e.CreateMessage(discord.MessageCreate{
 			Content: fmt.Sprintf("🔓 <@%d> was unbanned by <@%d>.", userID, e.User().ID),
 		}); err != nil {
-			b.Log.Error("unban announcement", "err", err)
+			b.log.Error("unban announcement", "err", err)
 		}
 	}
 }

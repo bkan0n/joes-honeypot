@@ -18,6 +18,9 @@ func main() {
 		level = slog.LevelDebug
 	}
 	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
+	// Anything logging through slog's default (libraries included) joins the
+	// same LOG_LEVEL-controlled stream.
+	slog.SetDefault(log)
 
 	token := os.Getenv("BOT_TOKEN")
 	if token == "" {

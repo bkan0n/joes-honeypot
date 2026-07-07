@@ -14,8 +14,8 @@ func TestNormalize(t *testing.T) {
 		"general":  "general",
 	}
 	for in, want := range cases {
-		if got := Normalize(in); got != want {
-			t.Errorf("Normalize(%q) = %q, want %q", in, got, want)
+		if got := normalize(in); got != want {
+			t.Errorf("normalize(%q) = %q, want %q", in, got, want)
 		}
 	}
 }
@@ -23,12 +23,12 @@ func TestNormalize(t *testing.T) {
 func TestObfuscateRoundTrips(t *testing.T) {
 	rng := rand.New(rand.NewSource(1))
 	for range 50 {
-		obf := Obfuscate("honeypot", rng)
+		obf := obfuscate("honeypot", rng)
 		if obf == "honeypot" {
-			t.Fatal("Obfuscate returned the literal string (no replacements)")
+			t.Fatal("obfuscate returned the literal string (no replacements)")
 		}
-		if got := Normalize(obf); got != "honeypot" {
-			t.Fatalf("Normalize(Obfuscate) = %q, want honeypot (obf=%q)", got, obf)
+		if got := normalize(obf); got != "honeypot" {
+			t.Fatalf("normalize(obfuscate) = %q, want honeypot (obf=%q)", got, obf)
 		}
 	}
 }

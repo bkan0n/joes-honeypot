@@ -1,3 +1,4 @@
+// Package bot implements Joe's Honeypot's Discord behavior.
 package bot
 
 import (
@@ -22,11 +23,11 @@ type dedupKey struct {
 }
 
 type Bot struct {
-	Client *dbot.Client
-	Store  *store.Store
-	Log    *slog.Logger
-	Dedup  *cache.TTL[dedupKey, struct{}]
-	DMs    *cache.TTL[snowflake.ID, snowflake.ID]
+	client *dbot.Client
+	store  *store.Store
+	log    *slog.Logger
+	dedup  *cache.TTL[dedupKey, struct{}]
+	dms    *cache.TTL[snowflake.ID, snowflake.ID]
 
 	selfMembers *cache.TTL[snowflake.ID, discord.Member] // bot's own member per guild, for permission checks
 	ownerID     snowflake.ID                             // bot application owner, allowed to use "@bot refresh"
@@ -34,10 +35,10 @@ type Bot struct {
 
 func New(token string, st *store.Store, log *slog.Logger) (*Bot, error) {
 	b := &Bot{
-		Store:       st,
-		Log:         log,
-		Dedup:       cache.NewTTL[dedupKey, struct{}](),
-		DMs:         cache.NewTTL[snowflake.ID, snowflake.ID](),
+		store:       st,
+		log:         log,
+		dedup:       cache.NewTTL[dedupKey, struct{}](),
+		dms:         cache.NewTTL[snowflake.ID, snowflake.ID](),
 		selfMembers: cache.NewTTL[snowflake.ID, discord.Member](),
 	}
 	// Event listeners are appended here by the handler files (handler_*.go,
@@ -54,6 +55,9 @@ func New(token string, st *store.Store, log *slog.Logger) (*Bot, error) {
 		dbot.WithEventListenerFunc(b.onGuildLeave),
 	}
 	opts := append([]dbot.ConfigOpt{
+		// disgo defaults to slog.Default(); without this, gateway reconnects
+		// and rate-limit hits would bypass the LOG_LEVEL-controlled logger.
+		dbot.WithLogger(log),
 		dbot.WithGatewayConfigOpts(
 			gateway.WithIntents(gateway.IntentGuilds|gateway.IntentGuildMessages),
 			gateway.WithPresenceOpts(gateway.WithWatchingActivity("#honeypot for bots")),
@@ -67,22 +71,22 @@ func New(token string, st *store.Store, log *slog.Logger) (*Bot, error) {
 	if err != nil {
 		return nil, err
 	}
-	b.Client = client
+	b.client = client
 	return b, nil
 }
 
 func (b *Bot) Start(ctx context.Context) error {
-	if app, err := b.Client.Rest.GetBotApplicationInfo(); err != nil {
-		b.Log.Warn("fetching application owner; @refresh command disabled", "err", err)
+	if app, err := b.client.Rest.GetBotApplicationInfo(); err != nil {
+		b.log.Warn("fetching application owner; @refresh command disabled", "err", err)
 	} else if app.Owner != nil {
 		b.ownerID = app.Owner.ID
 	}
-	if err := handler.SyncCommands(b.Client, commands(), nil); err != nil {
+	if err := handler.SyncCommands(b.client, commands(), nil); err != nil {
 		return err
 	}
-	return b.Client.OpenGateway(ctx)
+	return b.client.OpenGateway(ctx)
 }
 
 func (b *Bot) Close(ctx context.Context) {
-	b.Client.Close(ctx)
+	b.client.Close(ctx)
 }

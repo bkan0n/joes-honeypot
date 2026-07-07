@@ -10,7 +10,7 @@ import (
 
 // warningMessagePrefix identifies a bot-authored message as our persistent
 // warning post, used both to detect a stale message (see selectWarningMessage)
-// and, indirectly, as the start of WarningMessage's content.
+// and, indirectly, as the start of warningMessage's content.
 const warningMessagePrefix = "## ⚠️"
 
 // ensureWarningMessage posts the persistent warning (with counter button) if
@@ -18,18 +18,18 @@ const warningMessagePrefix = "## ⚠️"
 // It returns nil when the warning message is confirmed posted or updated
 // (with its msg_id stored or already current).
 func (b *Bot) ensureWarningMessage(guildID, channelID snowflake.ID) error {
-	ch, err := b.Store.GetChannelByID(channelID)
+	ch, err := b.store.GetChannelByID(channelID)
 	if err != nil {
 		return fmt.Errorf("loading channel: %w", err)
 	}
 	if ch == nil {
 		return fmt.Errorf("channel %d is not a registered honeypot channel", channelID)
 	}
-	count, err := b.Store.CountEventsByGuild(guildID)
+	count, err := b.store.CountEventsByGuild(guildID)
 	if err != nil {
 		return fmt.Errorf("counting events: %w", err)
 	}
-	components := WarningMessageComponents(count)
+	components := warningMessageComponents(count)
 	if ch.MsgID != nil {
 		if err := b.updateWarningMessage(channelID, *ch.MsgID, components); err == nil {
 			return nil
@@ -41,31 +41,31 @@ func (b *Bot) ensureWarningMessage(guildID, channelID snowflake.ID) error {
 	// whether the bot already left one behind (e.g. a rejoin, or a restart
 	// racing a stale DB write). If so, adopt the oldest and clean up
 	// duplicates instead of spamming another one.
-	if recent, err := b.Client.Rest.GetMessages(channelID, 0, 0, 0, 50); err != nil {
-		b.Log.Warn("listing messages for warning-message dedup", "channel", channelID, "err", err)
-	} else if adopt, extras := selectWarningMessage(recent, b.Client.ID()); adopt != nil {
+	if recent, err := b.client.Rest.GetMessages(channelID, 0, 0, 0, 50); err != nil {
+		b.log.Warn("listing messages for warning-message dedup", "channel", channelID, "err", err)
+	} else if adopt, extras := selectWarningMessage(recent, b.client.ID()); adopt != nil {
 		if err := b.updateWarningMessage(channelID, adopt.ID, components); err != nil {
-			b.Log.Warn("updating adopted warning message", "channel", channelID, "msg", adopt.ID, "err", err)
+			b.log.Warn("updating adopted warning message", "channel", channelID, "msg", adopt.ID, "err", err)
 		}
-		if err := b.Store.SetWarningMsg(channelID, &adopt.ID); err != nil {
+		if err := b.store.SetWarningMsg(channelID, &adopt.ID); err != nil {
 			return fmt.Errorf("storing adopted warning msg id: %w", err)
 		}
 		for _, extra := range extras {
-			if err := b.Client.Rest.DeleteMessage(channelID, extra.ID); err != nil {
-				b.Log.Warn("deleting duplicate warning message", "channel", channelID, "msg", extra.ID, "err", err)
+			if err := b.client.Rest.DeleteMessage(channelID, extra.ID); err != nil {
+				b.log.Warn("deleting duplicate warning message", "channel", channelID, "msg", extra.ID, "err", err)
 			}
 		}
 		return nil
 	}
 
-	msg, err := b.Client.Rest.CreateMessage(channelID, discord.MessageCreate{
+	msg, err := b.client.Rest.CreateMessage(channelID, discord.MessageCreate{
 		Flags:      discord.MessageFlagIsComponentsV2,
 		Components: components,
 	})
 	if err != nil {
 		return fmt.Errorf("posting warning message: %w", err)
 	}
-	if err := b.Store.SetWarningMsg(channelID, &msg.ID); err != nil {
+	if err := b.store.SetWarningMsg(channelID, &msg.ID); err != nil {
 		return fmt.Errorf("storing warning msg id: %w", err)
 	}
 	return nil
@@ -76,14 +76,14 @@ func (b *Bot) ensureWarningMessage(guildID, channelID snowflake.ID) error {
 // (the message is already CV2), then retries with the CV2 flag set and the
 // content cleared, which converts a legacy plain-content warning message.
 func (b *Bot) updateWarningMessage(channelID, msgID snowflake.ID, components []discord.LayoutComponent) error {
-	if _, err := b.Client.Rest.UpdateMessage(channelID, msgID, discord.MessageUpdate{
+	if _, err := b.client.Rest.UpdateMessage(channelID, msgID, discord.MessageUpdate{
 		Components: &components,
 	}); err == nil {
 		return nil
 	}
 	empty := ""
 	flags := discord.MessageFlagIsComponentsV2
-	_, err := b.Client.Rest.UpdateMessage(channelID, msgID, discord.MessageUpdate{
+	_, err := b.client.Rest.UpdateMessage(channelID, msgID, discord.MessageUpdate{
 		Content:    &empty,
 		Flags:      &flags,
 		Components: &components,

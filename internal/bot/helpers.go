@@ -15,7 +15,7 @@ import (
 const selfMemberTTL = 2 * time.Minute
 
 func (b *Bot) botPermissionsIn(guildID, channelID snowflake.ID) discord.Permissions {
-	ch, ok := b.Client.Caches.Channel(channelID)
+	ch, ok := b.client.Caches.Channel(channelID)
 	if !ok {
 		return 0
 	}
@@ -31,25 +31,25 @@ func (b *Bot) botPermissionsIn(guildID, channelID snowflake.ID) discord.Permissi
 func (b *Bot) botPermissionsInChannel(guildID snowflake.ID, ch discord.GuildChannel) discord.Permissions {
 	member, ok := b.selfMembers.Get(guildID)
 	if !ok {
-		m, err := b.Client.Rest.GetMember(guildID, b.Client.ID())
+		m, err := b.client.Rest.GetMember(guildID, b.client.ID())
 		if err != nil || m == nil {
 			return 0
 		}
 		member = *m
 		b.selfMembers.Set(guildID, member, selfMemberTTL)
 	}
-	return b.Client.Caches.MemberPermissionsInChannel(ch, member)
+	return b.client.Caches.MemberPermissionsInChannel(ch, member)
 }
 
-// interactionReplier is satisfied by *events.ModalSubmitInteractionCreate and
-// *events.ComponentInteractionCreate.
+// interactionReplier is satisfied by *events.ApplicationCommandInteractionCreate
+// and *events.ComponentInteractionCreate.
 type interactionReplier interface {
 	CreateMessage(messageCreate discord.MessageCreate, opts ...rest.RequestOpt) error
 }
 
 func (b *Bot) replyEphemeral(e interactionReplier, content string) {
 	if err := e.CreateMessage(discord.MessageCreate{Content: content, Flags: discord.MessageFlagEphemeral}); err != nil {
-		b.Log.Error("sending ephemeral reply", "err", err)
+		b.log.Error("sending ephemeral reply", "err", err)
 	}
 }
 
@@ -57,10 +57,10 @@ func (b *Bot) replyEphemeral(e interactionReplier, content string) {
 // DeferCreateMessage at the top of onModalSubmit; once an interaction is
 // deferred, editing the deferred message is the only way to respond.
 func (b *Bot) editDeferredReply(e *events.ModalSubmitInteractionCreate, content string) {
-	if _, err := b.Client.Rest.UpdateInteractionResponse(e.ApplicationID(), e.Token(), discord.MessageUpdate{
+	if _, err := b.client.Rest.UpdateInteractionResponse(e.ApplicationID(), e.Token(), discord.MessageUpdate{
 		Content: &content,
 	}); err != nil {
-		b.Log.Error("editing deferred interaction response", "err", err)
+		b.log.Error("editing deferred interaction response", "err", err)
 	}
 }
 
@@ -71,7 +71,7 @@ func (b *Bot) safeGo(fn func()) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				b.Log.Error("panic in background goroutine", "panic", r)
+				b.log.Error("panic in background goroutine", "panic", r)
 			}
 		}()
 		fn()

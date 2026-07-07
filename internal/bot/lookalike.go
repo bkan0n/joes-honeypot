@@ -1,4 +1,3 @@
-// Package bot implements Joe's Honeypot's Discord behavior.
 package bot
 
 import (
@@ -35,8 +34,8 @@ var normalizeMap = func() map[rune]rune {
 	return m
 }()
 
-// Normalize lowercases s and maps known lookalike runes back to ASCII.
-func Normalize(s string) string {
+// normalize lowercases s and maps known lookalike runes back to ASCII.
+func normalize(s string) string {
 	var b strings.Builder
 	for _, r := range strings.ToLower(s) {
 		if ascii, ok := normalizeMap[r]; ok {
@@ -47,9 +46,9 @@ func Normalize(s string) string {
 	return b.String()
 }
 
-// Obfuscate replaces ~30% of mappable runes in s with random lookalikes,
+// obfuscate replaces ~30% of mappable runes in s with random lookalikes,
 // guaranteeing at least one replacement.
-func Obfuscate(s string, rng *rand.Rand) string {
+func obfuscate(s string, rng *rand.Rand) string {
 	runes := []rune(strings.ToLower(s))
 	replaced := false
 	for i, r := range runes {

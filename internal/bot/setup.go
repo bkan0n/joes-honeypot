@@ -17,36 +17,36 @@ import (
 // intro message explaining the setup.
 func (b *Bot) onGuildJoin(e *events.GuildJoin) {
 	guildID := e.Guild.ID
-	cfg, err := b.Store.GetConfig(guildID)
+	cfg, err := b.store.GetConfig(guildID)
 	if err != nil {
-		b.Log.Error("checking existing config", "guild", guildID, "err", err)
+		b.log.Error("checking existing config", "guild", guildID, "err", err)
 		return
 	}
 	if cfg != nil {
 		return // rejoined a guild we already know
 	}
 
-	channels, err := b.Client.Rest.GetGuildChannels(guildID)
+	channels, err := b.client.Rest.GetGuildChannels(guildID)
 	if err != nil {
-		b.Log.Error("listing channels", "guild", guildID, "err", err)
+		b.log.Error("listing channels", "guild", guildID, "err", err)
 		return
 	}
 
 	var honeypot discord.GuildChannel
 	for _, ch := range channels {
-		if ch.Type() == discord.ChannelTypeGuildText && Normalize(ch.Name()) == "honeypot" {
+		if ch.Type() == discord.ChannelTypeGuildText && normalize(ch.Name()) == "honeypot" {
 			honeypot = ch
 			break
 		}
 	}
 	if honeypot == nil {
-		name := Obfuscate("honeypot", rand.New(rand.NewSource(time.Now().UnixNano())))
-		created, err := b.Client.Rest.CreateGuildChannel(guildID, discord.GuildTextChannelCreate{
+		name := obfuscate("honeypot", rand.New(rand.NewSource(time.Now().UnixNano())))
+		created, err := b.client.Rest.CreateGuildChannel(guildID, discord.GuildTextChannelCreate{
 			Name:     name,
 			Position: len(channels) + 1,
 		})
 		if err != nil {
-			b.Log.Error("creating honeypot channel", "guild", guildID, "err", err)
+			b.log.Error("creating honeypot channel", "guild", guildID, "err", err)
 			return
 		}
 		honeypot = created
@@ -54,32 +54,32 @@ func (b *Bot) onGuildJoin(e *events.GuildJoin) {
 	honeypotID := honeypot.ID()
 	b.ensureEveryoneCanSeeChannel(guildID, honeypot)
 
-	if err := b.Store.SaveGuildSetup(store.Config{GuildID: guildID, Action: store.ActionSoftban}, honeypotID); err != nil {
-		b.Log.Error("saving default guild setup", "guild", guildID, "channel", honeypotID, "err", err)
+	if err := b.store.SaveGuildSetup(store.Config{GuildID: guildID, Action: store.ActionSoftban}, honeypotID); err != nil {
+		b.log.Error("saving default guild setup", "guild", guildID, "channel", honeypotID, "err", err)
 		return
 	}
 	if err := b.ensureWarningMessage(guildID, honeypotID); err != nil {
-		b.Log.Warn("posting warning message during auto-setup", "guild", guildID, "channel", honeypotID, "err", err)
+		b.log.Warn("posting warning message during auto-setup", "guild", guildID, "channel", honeypotID, "err", err)
 	}
 
 	missingBan := !b.botPermissionsInChannel(guildID, honeypot).Has(discord.PermissionBanMembers)
-	intro, err := b.Client.Rest.CreateMessage(honeypotID, discord.MessageCreate{
-		Content: IntroMessage(missingBan),
+	intro, err := b.client.Rest.CreateMessage(honeypotID, discord.MessageCreate{
+		Content: introMessage(missingBan),
 		Components: []discord.LayoutComponent{
 			discord.NewActionRow(discord.NewSecondaryButton("Delete message now", introDeleteCID)),
 		},
 	})
 	if err != nil {
-		b.Log.Warn("posting intro message", "err", err)
+		b.log.Warn("posting intro message", "err", err)
 		return
 	}
 	introChannelID, introID := intro.ChannelID, intro.ID
 	time.AfterFunc(150*time.Second, func() {
-		if err := b.Client.Rest.DeleteMessage(introChannelID, introID); err != nil {
-			b.Log.Debug("intro already deleted", "err", err)
+		if err := b.client.Rest.DeleteMessage(introChannelID, introID); err != nil {
+			b.log.Debug("intro already deleted", "err", err)
 		}
 	})
-	b.Log.Info("auto-setup complete", "guild", guildID, "channel", honeypotID)
+	b.log.Info("auto-setup complete", "guild", guildID, "channel", honeypotID)
 }
 
 // ensureEveryoneCanSeeChannel grants @everyone View Channel + Send Messages
@@ -90,7 +90,7 @@ func (b *Bot) onGuildJoin(e *events.GuildJoin) {
 // overwrites); it's a best-effort fix, not a full permission resolver.
 // Failures are logged and otherwise ignored.
 func (b *Bot) ensureEveryoneCanSeeChannel(guildID snowflake.ID, ch discord.GuildChannel) {
-	everyone, ok := b.Client.Caches.Role(guildID, guildID) // @everyone's role ID == guild ID
+	everyone, ok := b.client.Caches.Role(guildID, guildID) // @everyone's role ID == guild ID
 	if !ok {
 		return
 	}
@@ -111,17 +111,17 @@ func (b *Bot) ensureEveryoneCanSeeChannel(guildID snowflake.ID, ch discord.Guild
 
 	botPerms := b.botPermissionsInChannel(guildID, ch)
 	if !botPerms.Has(discord.PermissionManageRoles) && !botPerms.Has(discord.PermissionManageChannels) {
-		b.Log.Warn("cannot grant @everyone view/send: missing Manage Roles/Channels",
+		b.log.Warn("cannot grant @everyone view/send: missing Manage Roles/Channels",
 			"guild", guildID, "channel", ch.ID())
 		return
 	}
 
 	allow := overwrite.Allow | needed
 	deny := overwrite.Deny &^ needed
-	if err := b.Client.Rest.UpdatePermissionOverwrite(ch.ID(), guildID, discord.RolePermissionOverwriteUpdate{
+	if err := b.client.Rest.UpdatePermissionOverwrite(ch.ID(), guildID, discord.RolePermissionOverwriteUpdate{
 		Allow: &allow,
 		Deny:  &deny,
 	}); err != nil {
-		b.Log.Warn("granting @everyone view/send on honeypot channel", "guild", guildID, "channel", ch.ID(), "err", err)
+		b.log.Warn("granting @everyone view/send on honeypot channel", "guild", guildID, "channel", ch.ID(), "err", err)
 	}
 }

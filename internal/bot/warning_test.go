@@ -13,7 +13,7 @@ func warningMsg(id snowflake.ID, authorID snowflake.ID) discord.Message {
 	return discord.Message{
 		ID:      id,
 		Author:  discord.User{ID: authorID},
-		Content: WarningMessage(),
+		Content: warningMessage(),
 	}
 }
 
@@ -21,7 +21,7 @@ func cv2WarningMsg(id snowflake.ID, authorID snowflake.ID) discord.Message {
 	return discord.Message{
 		ID:         id,
 		Author:     discord.User{ID: authorID},
-		Components: WarningMessageComponents(5),
+		Components: warningMessageComponents(5),
 	}
 }
 

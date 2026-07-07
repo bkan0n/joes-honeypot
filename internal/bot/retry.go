@@ -36,7 +36,7 @@ func (b *Bot) retryTransient(op string, attempts int, backoff time.Duration, fn 
 		if err == nil || !isTransientRestError(err) || attempt == attempts {
 			return err
 		}
-		b.Log.Warn(op+" failed, retrying", "attempt", attempt, "backoff", backoff, "err", err)
+		b.log.Warn(op+" failed, retrying", "attempt", attempt, "backoff", backoff, "err", err)
 		time.Sleep(backoff)
 		backoff *= 2
 	}

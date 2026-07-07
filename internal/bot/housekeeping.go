@@ -2,67 +2,55 @@ package bot
 
 import (
 	"github.com/disgoorg/disgo/events"
+	"github.com/disgoorg/snowflake/v2"
 )
 
 func (b *Bot) onChannelDelete(e *events.GuildChannelDelete) {
-	ch, err := b.Store.GetChannelByID(e.ChannelID)
-	if err != nil {
-		b.Log.Error("checking deleted channel", "guild", e.GuildID, "channel", e.ChannelID, "err", err)
-		return
-	}
-	if ch != nil {
-		if err := b.Store.RemoveChannel(e.ChannelID); err != nil {
-			b.Log.Error("removing deleted honeypot channel", "guild", e.GuildID, "channel", e.ChannelID, "err", err)
-		}
-		return
-	}
-	cfg, err := b.Store.GetConfig(e.GuildID)
-	if err != nil {
-		b.Log.Error("loading config for deleted channel", "guild", e.GuildID, "channel", e.ChannelID, "err", err)
-		return
-	}
-	if cfg != nil && cfg.LogChannelID != nil && *cfg.LogChannelID == e.ChannelID {
-		if err := b.Store.UnsetLogChannel(e.GuildID); err != nil {
-			b.Log.Error("unsetting deleted log channel", "guild", e.GuildID, "channel", e.ChannelID, "err", err)
-		}
-	}
+	b.handleContainerDelete(e.GuildID, e.ChannelID, "channel")
 }
 
 // onThreadDelete mirrors onChannelDelete's housekeeping for threads: threads
 // can be used as a log channel but do not dispatch GuildChannelDelete when
 // removed, so they need their own listener.
 func (b *Bot) onThreadDelete(e *events.ThreadDelete) {
-	ch, err := b.Store.GetChannelByID(e.ThreadID)
+	b.handleContainerDelete(e.GuildID, e.ThreadID, "thread")
+}
+
+// handleContainerDelete cleans up after a deleted channel or thread (kind is
+// only for log wording): a honeypot channel is deregistered, a log channel
+// is unset.
+func (b *Bot) handleContainerDelete(guildID, containerID snowflake.ID, kind string) {
+	ch, err := b.store.GetChannelByID(containerID)
 	if err != nil {
-		b.Log.Error("checking deleted thread", "guild", e.GuildID, "channel", e.ThreadID, "err", err)
+		b.log.Error("checking deleted "+kind, "guild", guildID, "channel", containerID, "err", err)
 		return
 	}
 	if ch != nil {
-		if err := b.Store.RemoveChannel(e.ThreadID); err != nil {
-			b.Log.Error("removing deleted honeypot thread", "guild", e.GuildID, "channel", e.ThreadID, "err", err)
+		if err := b.store.RemoveChannel(containerID); err != nil {
+			b.log.Error("removing deleted honeypot "+kind, "guild", guildID, "channel", containerID, "err", err)
 		}
 		return
 	}
-	cfg, err := b.Store.GetConfig(e.GuildID)
+	cfg, err := b.store.GetConfig(guildID)
 	if err != nil {
-		b.Log.Error("loading config for deleted thread", "guild", e.GuildID, "channel", e.ThreadID, "err", err)
+		b.log.Error("loading config for deleted "+kind, "guild", guildID, "channel", containerID, "err", err)
 		return
 	}
-	if cfg != nil && cfg.LogChannelID != nil && *cfg.LogChannelID == e.ThreadID {
-		if err := b.Store.UnsetLogChannel(e.GuildID); err != nil {
-			b.Log.Error("unsetting deleted log channel thread", "guild", e.GuildID, "channel", e.ThreadID, "err", err)
+	if cfg != nil && cfg.LogChannelID != nil && *cfg.LogChannelID == containerID {
+		if err := b.store.UnsetLogChannel(guildID); err != nil {
+			b.log.Error("unsetting deleted log "+kind, "guild", guildID, "channel", containerID, "err", err)
 		}
 	}
 }
 
 func (b *Bot) onMessageDelete(e *events.GuildMessageDelete) {
-	if err := b.Store.ClearWarningMsgByMsgID(e.MessageID); err != nil {
-		b.Log.Error("clearing warning msg id", "guild", e.GuildID, "msg", e.MessageID, "err", err)
+	if err := b.store.ClearWarningMsgByMsgID(e.MessageID); err != nil {
+		b.log.Error("clearing warning msg id", "guild", e.GuildID, "msg", e.MessageID, "err", err)
 	}
 }
 
 func (b *Bot) onGuildLeave(e *events.GuildLeave) {
-	if err := b.Store.DeleteGuild(e.Guild.ID); err != nil {
-		b.Log.Error("purging guild config", "guild", e.Guild.ID, "err", err)
+	if err := b.store.DeleteGuild(e.Guild.ID); err != nil {
+		b.log.Error("purging guild config", "guild", e.Guild.ID, "err", err)
 	}
 }

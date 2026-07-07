@@ -62,7 +62,7 @@ func obfuscate(s string, rng *rand.Rand) string {
 		}
 	}
 	if !replaced {
-		for i, r := range runes { // force one deterministic replacement
+		for i, r := range runes {
 			if subs, ok := lookalikes[r]; ok {
 				runes[i] = subs[rng.Intn(len(subs))]
 				break

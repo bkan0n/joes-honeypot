@@ -8,6 +8,8 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 )
 
+// Action is what the bot does to a non-exempt user who posts in the honeypot
+// channel.
 type Action string
 
 const (
@@ -16,12 +18,15 @@ const (
 	ActionDisabled Action = "disabled"
 )
 
+// Config is a guild's honeypot settings; one row per guild.
 type Config struct {
 	GuildID      snowflake.ID
 	LogChannelID *snowflake.ID
 	Action       Action
 }
 
+// Channel is a guild's registered honeypot channel and, when posted, the ID
+// of the persistent warning message in it.
 type Channel struct {
 	ChannelID snowflake.ID
 	GuildID   snowflake.ID

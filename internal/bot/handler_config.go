@@ -130,7 +130,6 @@ func (b *Bot) onModalSubmit(e *events.ModalSubmitInteractionCreate) {
 		b.editDeferredReply(e, "Something went wrong saving the config. No settings have been changed.")
 		return
 	}
-	// Channel changed: delete the old warning message, post one in the new channel.
 	if prev != nil && prev.ChannelID != sub.HoneypotChannelID && prev.MsgID != nil {
 		if err := b.client.Rest.DeleteMessage(prev.ChannelID, *prev.MsgID, rest.WithCtx(b.ctx)); err != nil {
 			b.log.Warn("deleting old warning message", "err", err)

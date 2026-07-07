@@ -20,6 +20,8 @@ type entry[V any] struct {
 	expiresAt time.Time
 }
 
+// TTL is a concurrency-safe map whose entries expire after a per-entry
+// duration. The zero value is not usable; create one with NewTTL.
 type TTL[K comparable, V any] struct {
 	mu     sync.Mutex
 	m      map[K]entry[V]

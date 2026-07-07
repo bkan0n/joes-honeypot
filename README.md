@@ -58,9 +58,10 @@ SQLite lives in the named volumes `joes_honeypot_{prod,dev}_data`.
 named volumes keep the ownership they were created with (uid 1000 under
 the old debian image), but the distroless runtime runs as uid 65532, so
 the bot crash-loops with `attempt to write a readonly database`. Fix on
-the server, per volume:
+the server, per volume — note Compose prefixes the project name, so check
+`docker volume ls` for the real name first:
 
-    docker run --rm -v joes_honeypot_prod_data:/data busybox chown -R 65532:65532 /data
+    docker run --rm -v joes-honeypot_joes_honeypot_prod_data:/data busybox chown -R 65532:65532 /data
 
 Volumes created from scratch inherit the right ownership automatically.
 

@@ -33,6 +33,20 @@ func (b *Bot) onComponent(e *events.ComponentInteractionCreate) {
 	guildID := *e.GuildID()
 
 	switch {
+	case data.CustomID() == counterButtonCID:
+		// The counter button is display-only now, but messages rendered
+		// before that change (or stale client caches) can still deliver a
+		// click. Without an ack the user sees "This interaction failed" —
+		// ack silently, then re-render the warning message into the current
+		// layout, which disables the button in place.
+		if err := e.DeferUpdateMessage(); err != nil {
+			b.log.Warn("acknowledging stale counter button", "guild", guildID, "err", err)
+			return
+		}
+		if err := b.ensureWarningMessage(guildID, e.Message.ChannelID); err != nil {
+			b.log.Warn("re-rendering warning message after stale counter click", "guild", guildID, "channel", e.Message.ChannelID, "err", err)
+		}
+
 	case data.CustomID() == introDeleteCID:
 		if m := e.Member(); m == nil || !m.Permissions.Has(discord.PermissionManageMessages) {
 			b.replyEphemeral(e, "You need the **Manage Messages** permission to delete this.")

@@ -66,6 +66,9 @@ func TestWarningMessageComponents(t *testing.T) {
 			for _, rc := range c.Components {
 				if btn, ok := rc.(discord.ButtonComponent); ok && btn.Label == "3 Kicked" {
 					haveButton = true
+					if !btn.Disabled {
+						t.Error("counter button must be disabled (display only)")
+					}
 				}
 			}
 		}

@@ -54,6 +54,16 @@ accept any host.
 
 SQLite lives in the named volumes `joes_honeypot_{prod,dev}_data`.
 
+**One-time migration for volumes created before the distroless image:**
+named volumes keep the ownership they were created with (uid 1000 under
+the old debian image), but the distroless runtime runs as uid 65532, so
+the bot crash-loops with `attempt to write a readonly database`. Fix on
+the server, per volume:
+
+    docker run --rm -v joes_honeypot_prod_data:/data busybox chown -R 65532:65532 /data
+
+Volumes created from scratch inherit the right ownership automatically.
+
 ## Backups
 
 A [Litestream](https://litestream.io) sidecar in `docker-compose.prod.yml`

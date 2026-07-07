@@ -77,9 +77,19 @@ func (b *Bot) onModalSubmit(e *events.ModalSubmitInteractionCreate) {
 	}
 	guildID := *e.GuildID()
 
+	// Ack immediately: the permission checks and warning-message work below
+	// can add up to several REST round-trips, easily blowing Discord's 3s
+	// interaction deadline. After deferring, a normal interaction response is
+	// no longer allowed — every exit path below must edit the deferred reply
+	// (editDeferredReply), never b.replyEphemeral.
+	if err := e.DeferCreateMessage(true); err != nil {
+		b.Log.Error("deferring modal response", "guild", guildID, "err", err)
+		return
+	}
+
 	sel, ok := e.Data.ChannelSelectMenu(honeypotChanCID)
 	if !ok || len(sel.Values) != 1 {
-		b.replyEphemeral(e, "No honeypot channel selected. No settings have been changed.")
+		b.editDeferredReply(e, "No honeypot channel selected. No settings have been changed.")
 		return
 	}
 	sub := configSubmission{HoneypotChannelID: sel.Values[0], Action: store.ActionSoftban}
@@ -93,7 +103,7 @@ func (b *Bot) onModalSubmit(e *events.ModalSubmitInteractionCreate) {
 	switch sub.Action {
 	case store.ActionSoftban, store.ActionBan, store.ActionDisabled:
 	default:
-		b.replyEphemeral(e, "Unknown action selected. No settings have been changed.")
+		b.editDeferredReply(e, "Unknown action selected. No settings have been changed.")
 		return
 	}
 
@@ -106,7 +116,7 @@ func (b *Bot) onModalSubmit(e *events.ModalSubmitInteractionCreate) {
 		botLogPerms = b.botPermissionsIn(guildID, *sub.LogChannelID)
 	}
 	if problems := validateConfig(sub, userPerms, b.botPermissionsIn(guildID, sub.HoneypotChannelID), botLogPerms); len(problems) > 0 {
-		b.replyEphemeral(e, "**No settings have been changed:**\n- "+strings.Join(problems, "\n- "))
+		b.editDeferredReply(e, "**No settings have been changed:**\n- "+strings.Join(problems, "\n- "))
 		return
 	}
 
@@ -116,12 +126,12 @@ func (b *Bot) onModalSubmit(e *events.ModalSubmitInteractionCreate) {
 	}
 	if err := b.Store.UpsertConfig(store.Config{GuildID: guildID, LogChannelID: sub.LogChannelID, Action: sub.Action}); err != nil {
 		b.Log.Error("saving config", "guild", guildID, "err", err)
-		b.replyEphemeral(e, "Something went wrong saving the config. No settings have been changed.")
+		b.editDeferredReply(e, "Something went wrong saving the config. No settings have been changed.")
 		return
 	}
 	if err := b.Store.SetChannel(guildID, sub.HoneypotChannelID); err != nil {
 		b.Log.Error("saving channel", "guild", guildID, "err", err)
-		b.replyEphemeral(e, "Something went wrong saving the channel.")
+		b.editDeferredReply(e, "Something went wrong saving the channel.")
 		return
 	}
 	// Channel changed: delete the old warning message, post one in the new channel.
@@ -132,8 +142,8 @@ func (b *Bot) onModalSubmit(e *events.ModalSubmitInteractionCreate) {
 	}
 	if err := b.ensureWarningMessage(guildID, sub.HoneypotChannelID); err != nil {
 		b.Log.Warn("posting warning message after config change", "guild", guildID, "channel", sub.HoneypotChannelID, "err", err)
-		b.replyEphemeral(e, fmt.Sprintf("🍯 Honeypot configured: <#%d>, action **%s**.\n⚠️ I couldn't post the warning message in the honeypot channel — check my View/Send permissions there.", sub.HoneypotChannelID, sub.Action))
+		b.editDeferredReply(e, fmt.Sprintf("🍯 Honeypot configured: <#%d>, action **%s**.\n⚠️ I couldn't post the warning message in the honeypot channel — check my View/Send permissions there.", sub.HoneypotChannelID, sub.Action))
 	} else {
-		b.replyEphemeral(e, fmt.Sprintf("🍯 Honeypot configured: <#%d>, action **%s**.", sub.HoneypotChannelID, sub.Action))
+		b.editDeferredReply(e, fmt.Sprintf("🍯 Honeypot configured: <#%d>, action **%s**.", sub.HoneypotChannelID, sub.Action))
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/disgoorg/disgo"
 	dbot "github.com/disgoorg/disgo/bot"
 	dcache "github.com/disgoorg/disgo/cache"
+	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/gateway"
 	"github.com/disgoorg/disgo/handler"
 	"github.com/disgoorg/snowflake/v2"
@@ -27,15 +28,17 @@ type Bot struct {
 	Dedup  *cache.TTL[dedupKey, struct{}]
 	DMs    *cache.TTL[snowflake.ID, snowflake.ID]
 
-	ownerID snowflake.ID // bot application owner, allowed to use "@bot refresh"
+	selfMembers *cache.TTL[snowflake.ID, discord.Member] // bot's own member per guild, for permission checks
+	ownerID     snowflake.ID                             // bot application owner, allowed to use "@bot refresh"
 }
 
 func New(token string, st *store.Store, log *slog.Logger) (*Bot, error) {
 	b := &Bot{
-		Store: st,
-		Log:   log,
-		Dedup: cache.NewTTL[dedupKey, struct{}](),
-		DMs:   cache.NewTTL[snowflake.ID, snowflake.ID](),
+		Store:       st,
+		Log:         log,
+		Dedup:       cache.NewTTL[dedupKey, struct{}](),
+		DMs:         cache.NewTTL[snowflake.ID, snowflake.ID](),
+		selfMembers: cache.NewTTL[snowflake.ID, discord.Member](),
 	}
 	// Event listeners are appended here by the handler files (handler_*.go,
 	// setup.go, housekeeping.go) as they are implemented.

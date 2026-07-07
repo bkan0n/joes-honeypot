@@ -1,15 +1,20 @@
 services:
   joes-honeypot-dev:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/bkan0n/joes-honeypot:${IMAGE_TAG:-latest}
     container_name: joes-honeypot-dev
     environment:
       BOT_TOKEN: ${BOT_TOKEN}
       DB_PATH: /data/honeypot.db
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - joes_honeypot_dev_data:/data
     restart: unless-stopped
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   joes_honeypot_dev_data:

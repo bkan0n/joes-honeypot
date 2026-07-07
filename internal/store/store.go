@@ -10,7 +10,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
+	"github.com/disgoorg/snowflake/v2"
 	_ "modernc.org/sqlite"
 )
 
@@ -19,6 +21,15 @@ var migrationsFS embed.FS
 
 type Store struct {
 	db *sql.DB
+
+	// channels is a write-through mirror of the honeypot_channels table:
+	// loaded once at Open, updated by every mutating method after its DB
+	// write succeeds, and serving all channel reads (the table is one row
+	// per guild, but GetChannelByID sits on the per-message hot path).
+	// This process owns the table — external edits to the database won't
+	// be seen until restart.
+	mu       sync.RWMutex
+	channels map[snowflake.ID]Channel
 }
 
 func Open(path string) (*Store, error) {
@@ -36,7 +47,12 @@ func Open(path string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
-	return &Store{db: db}, nil
+	channels, err := loadChannels(db)
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("load channels: %w", err)
+	}
+	return &Store{db: db, channels: channels}, nil
 }
 
 func (s *Store) Close() error { return s.db.Close() }

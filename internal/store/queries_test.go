@@ -1,6 +1,7 @@
 package store
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/disgoorg/snowflake/v2"
@@ -147,6 +148,108 @@ func TestEventsAndCascade(t *testing.T) {
 	}
 	if cfg, _ := s.GetConfig(g); cfg != nil {
 		t.Fatalf("config survived guild delete: %+v", cfg)
+	}
+}
+
+func TestSaveGuildSetup(t *testing.T) {
+	s := openTest(t)
+	// Fresh guild: config and channel land together.
+	if err := s.SaveGuildSetup(Config{GuildID: g, Action: ActionSoftban}, ch); err != nil {
+		t.Fatal(err)
+	}
+	if cfg, err := s.GetConfig(g); err != nil || cfg == nil || cfg.Action != ActionSoftban {
+		t.Fatalf("config = %+v, %v", cfg, err)
+	}
+	if c, err := s.GetChannel(g); err != nil || c == nil || c.ChannelID != ch {
+		t.Fatalf("channel = %+v, %v", c, err)
+	}
+	// Same channel again keeps msg_id.
+	if err := s.SetWarningMsg(ch, ptr(555)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveGuildSetup(Config{GuildID: g, LogChannelID: ptr(999), Action: ActionBan}, ch); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := s.GetConfig(g)
+	if cfg.Action != ActionBan || cfg.LogChannelID == nil || *cfg.LogChannelID != 999 {
+		t.Fatalf("config not updated: %+v", cfg)
+	}
+	c, _ := s.GetChannel(g)
+	if c.MsgID == nil || *c.MsgID != 555 {
+		t.Fatalf("msg_id lost on re-setup with same channel: %+v", c)
+	}
+	// New channel replaces the old row.
+	if err := s.SaveGuildSetup(Config{GuildID: g, Action: ActionBan}, ch+1); err != nil {
+		t.Fatal(err)
+	}
+	if old, _ := s.GetChannelByID(ch); old != nil {
+		t.Fatalf("old channel row survived: %+v", old)
+	}
+	c, _ = s.GetChannel(g)
+	if c == nil || c.ChannelID != ch+1 || c.MsgID != nil {
+		t.Fatalf("channel = %+v", c)
+	}
+}
+
+func TestClearWarningMsgByMsgIDKnownMessage(t *testing.T) {
+	s := openTest(t)
+	if err := s.SaveGuildSetup(Config{GuildID: g, Action: ActionSoftban}, ch); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetWarningMsg(ch, ptr(555)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ClearWarningMsgByMsgID(555); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := s.GetChannel(g)
+	if c == nil || c.MsgID != nil {
+		t.Fatalf("msg_id not cleared: %+v", c)
+	}
+}
+
+func TestDeleteGuildRemovesChannelLookup(t *testing.T) {
+	s := openTest(t)
+	if err := s.SaveGuildSetup(Config{GuildID: g, Action: ActionSoftban}, ch); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteGuild(g); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := s.GetChannelByID(ch); c != nil {
+		t.Fatalf("channel lookup survived guild delete: %+v", c)
+	}
+	if c, _ := s.GetChannel(g); c != nil {
+		t.Fatalf("guild channel survived guild delete: %+v", c)
+	}
+}
+
+// Channel reads are served from the in-process mirror of honeypot_channels,
+// so a reopened store must rebuild it from the table at Open.
+func TestChannelsSurviveReopen(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+	s1, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s1.SaveGuildSetup(Config{GuildID: g, Action: ActionSoftban}, ch); err != nil {
+		t.Fatal(err)
+	}
+	if err := s1.SetWarningMsg(ch, ptr(555)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s1.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s2, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s2.Close() })
+	c, err := s2.GetChannelByID(ch)
+	if err != nil || c == nil || c.GuildID != g || c.MsgID == nil || *c.MsgID != 555 {
+		t.Fatalf("channel after reopen = %+v, %v", c, err)
 	}
 }
 

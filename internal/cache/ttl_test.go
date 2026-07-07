@@ -40,6 +40,52 @@ func TestMissing(t *testing.T) {
 	}
 }
 
+func TestOpportunisticSweep(t *testing.T) {
+	t.Run("Set sweeps expired entries", func(t *testing.T) {
+		c := NewTTL[int, int]()
+		c.Set(-1, 0, time.Nanosecond) // expires immediately, never Get()ed
+		time.Sleep(time.Millisecond)
+		for i := 0; i < sweepInterval; i++ {
+			c.Set(i, i, time.Minute)
+		}
+		c.mu.Lock()
+		_, survived := c.m[-1]
+		size := len(c.m)
+		c.mu.Unlock()
+		if survived {
+			t.Fatal("expired entry survived the opportunistic sweep")
+		}
+		if size != sweepInterval {
+			t.Fatalf("len = %d, want %d live entries", size, sweepInterval)
+		}
+	})
+
+	t.Run("SetIfAbsent sweeps too", func(t *testing.T) {
+		c := NewTTL[int, int]()
+		c.Set(-1, 0, time.Nanosecond)
+		time.Sleep(time.Millisecond)
+		for i := 0; i < sweepInterval; i++ {
+			c.SetIfAbsent(i, i, time.Minute)
+		}
+		c.mu.Lock()
+		_, survived := c.m[-1]
+		c.mu.Unlock()
+		if survived {
+			t.Fatal("expired entry survived the opportunistic sweep")
+		}
+	})
+
+	t.Run("live entries survive", func(t *testing.T) {
+		c := NewTTL[int, int]()
+		for i := 0; i < 3*sweepInterval; i++ {
+			c.Set(i, i, time.Minute)
+		}
+		if v, ok := c.Get(0); !ok || v != 0 {
+			t.Fatalf("live entry lost by sweep: got %v %v", v, ok)
+		}
+	})
+}
+
 func TestSetIfAbsent(t *testing.T) {
 	t.Run("stores when missing", func(t *testing.T) {
 		c := NewTTL[string, int]()

@@ -21,7 +21,7 @@ func (b *Bot) handleMentionRefresh(e *events.MessageCreate) {
 	}
 	var mentioned bool
 	for _, u := range msg.Mentions {
-		if u.ID == b.Client.ID() {
+		if u.ID == b.client.ID() {
 			mentioned = true
 			break
 		}
@@ -30,22 +30,22 @@ func (b *Bot) handleMentionRefresh(e *events.MessageCreate) {
 		return
 	}
 
-	channels, err := b.Store.AllChannels()
+	channels, err := b.store.AllChannels()
 	if err != nil {
-		b.Log.Error("listing channels for warning-message refresh", "err", err)
+		b.log.Error("listing channels for warning-message refresh", "err", err)
 		return
 	}
 	var updated int
 	for _, ch := range channels {
-		if b.ensureWarningMessage(ch.GuildID, ch.ChannelID) {
-			updated++
+		if err := b.ensureWarningMessage(ch.GuildID, ch.ChannelID); err != nil {
+			b.log.Warn("warning-message refresh failed", "guild", ch.GuildID, "channel", ch.ChannelID, "err", err)
 		} else {
-			b.Log.Warn("warning-message refresh failed", "guild", ch.GuildID, "channel", ch.ChannelID)
+			updated++
 		}
 	}
-	if _, err := b.Client.Rest.CreateMessage(e.ChannelID, discord.MessageCreate{
+	if _, err := b.client.Rest.CreateMessage(e.ChannelID, discord.MessageCreate{
 		Content: fmt.Sprintf("🍯 Refreshed the warning message in %d/%d guilds.", updated, len(channels)),
 	}); err != nil {
-		b.Log.Warn("acking mention refresh", "err", err)
+		b.log.Warn("acking mention refresh", "err", err)
 	}
 }

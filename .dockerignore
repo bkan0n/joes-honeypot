@@ -4,3 +4,8 @@ docs
 .env*
 *.db*
 .github
+.DS_Store
+.superpowers
+Dockerfile
+docker-compose*.yml
+.golangci.yml

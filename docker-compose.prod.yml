@@ -1,8 +1,6 @@
 services:
   joes-honeypot:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/bkan0n/joes-honeypot:${IMAGE_TAG:-latest}
     container_name: joes-honeypot
     environment:
       BOT_TOKEN: ${BOT_TOKEN}
@@ -10,13 +8,15 @@ services:
     volumes:
       - joes_honeypot_prod_data:/data
     restart: unless-stopped
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # Continuous SQLite replication (H6). Config is passed on the command line
   # (not a mounted file) because deploys run over a remote Docker context.
-  # LITESTREAM_REPLICA_URL: s3-compatible bucket URL, e.g.
-  # s3://<bucket>.<account>.r2.cloudflarestorage.com/honeypot.db
-  # Restore after volume loss:
-  #   litestream restore -o /data/honeypot.db "$LITESTREAM_REPLICA_URL"
   litestream:
     image: litestream/litestream:0.3.13
     container_name: joes-honeypot-litestream
@@ -27,6 +27,11 @@ services:
     volumes:
       - joes_honeypot_prod_data:/data
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   joes_honeypot_prod_data:

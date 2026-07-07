@@ -26,12 +26,18 @@ Intents: Guilds + GuildMessages only. Message content is never read.
 
 ## Deployment
 
-GitHub Actions deploys with a remote Docker context over SSH (no registry):
+CI builds and pushes a SHA-tagged image to GHCR
+(`ghcr.io/bkan0n/joes-honeypot`); the server pulls and restarts over a
+remote Docker context (SSH):
 
-- **prod** — push to `main` → lint + tests → `docker compose -f
-  docker-compose.prod.yml up -d --build` on the VPS.
+- **prod** — push to `main` → lint + tests + image build → `docker compose
+  -f docker-compose.prod.yml pull && up -d` on the VPS.
 - **dev** — comment `.deploy` on a PR (or run the workflow manually) →
   same against `docker-compose.dev.yml`.
+
+**Rollback:** every deployed SHA stays in GHCR. Re-run the prod deploy
+workflow from the last good commit (pull-only, no rebuild), or on the
+server: `IMAGE_TAG=<old sha> docker compose -f docker-compose.prod.yml up -d`.
 
 Required GitHub configuration:
 
@@ -39,7 +45,12 @@ Required GitHub configuration:
 |---|---|
 | Environment `production` | `BOT_TOKEN`, `LITESTREAM_REPLICA_URL`, `LITESTREAM_ACCESS_KEY_ID`, `LITESTREAM_SECRET_ACCESS_KEY` |
 | Environment `development` | `BOT_TOKEN` (dev bot application) |
-| Repo secrets | `SERVER_HOST_SSH_PRIVATE_KEY`, `SERVER_HOST_IP`, `SERVER_HOST_USER` |
+| Repo secrets | `SERVER_HOST_SSH_PRIVATE_KEY`, `SERVER_HOST_IP`, `SERVER_HOST_USER`, `SERVER_HOST_KEY` |
+
+`SERVER_HOST_KEY` is the server's `known_hosts` line — run
+`ssh-keyscan <server-ip>` once from a trusted machine and paste the
+result. Workflows pin it instead of re-scanning per run, which would
+accept any host.
 
 SQLite lives in the named volumes `joes_honeypot_{prod,dev}_data`.
 

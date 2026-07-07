@@ -23,6 +23,9 @@ type dedupKey struct {
 	UserID  snowflake.ID
 }
 
+// Bot wires the Discord client, the store, and the in-memory caches together.
+// One instance serves every guild; create it with New, connect it with Start,
+// and shut it down with Close.
 type Bot struct {
 	client *dbot.Client
 	store  *store.Store
@@ -50,8 +53,6 @@ func New(token string, st *store.Store, log *slog.Logger) (*Bot, error) {
 		ctx:         ctx,
 		cancel:      cancel,
 	}
-	// Event listeners are appended here by the handler files (handler_*.go,
-	// setup.go, housekeeping.go) as they are implemented.
 	listeners := []dbot.ConfigOpt{
 		dbot.WithEventListenerFunc(b.onCommand),
 		dbot.WithEventListenerFunc(b.onModalSubmit),
@@ -85,6 +86,9 @@ func New(token string, st *store.Store, log *slog.Logger) (*Bot, error) {
 	return b, nil
 }
 
+// Start resolves the application owner, syncs the slash commands, and opens
+// the gateway connection. ctx bounds only the startup calls, not the bot's
+// lifetime (that's Close).
 func (b *Bot) Start(ctx context.Context) error {
 	if app, err := b.client.Rest.GetBotApplicationInfo(rest.WithCtx(ctx)); err != nil {
 		b.log.Warn("fetching application owner; @refresh command disabled", "err", err)

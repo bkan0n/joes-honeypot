@@ -19,6 +19,8 @@ import (
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
+// Store is the SQLite-backed persistence layer. It is safe for concurrent
+// use; open one per process with Open.
 type Store struct {
 	db *sql.DB
 
@@ -32,6 +34,8 @@ type Store struct {
 	channels map[snowflake.ID]Channel
 }
 
+// Open opens (creating if needed) the SQLite database at path, applies any
+// pending migrations, and preloads the channel mirror.
 func Open(path string) (*Store, error) {
 	dsn := fmt.Sprintf(
 		"file:%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)",

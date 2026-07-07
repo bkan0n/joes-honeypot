@@ -18,7 +18,7 @@ import (
 // intro message explaining the setup.
 func (b *Bot) onGuildJoin(e *events.GuildJoin) {
 	guildID := e.Guild.ID
-	cfg, err := b.store.GetConfig(guildID)
+	cfg, err := b.store.GetConfig(b.ctx, guildID)
 	if err != nil {
 		b.log.Error("checking existing config", "guild", guildID, "err", err)
 		return
@@ -55,7 +55,7 @@ func (b *Bot) onGuildJoin(e *events.GuildJoin) {
 	honeypotID := honeypot.ID()
 	b.ensureEveryoneCanSeeChannel(guildID, honeypot)
 
-	if err := b.store.SaveGuildSetup(store.Config{GuildID: guildID, Action: store.ActionSoftban}, honeypotID); err != nil {
+	if err := b.store.SaveGuildSetup(b.ctx, store.Config{GuildID: guildID, Action: store.ActionSoftban}, honeypotID); err != nil {
 		b.log.Error("saving default guild setup", "guild", guildID, "channel", honeypotID, "err", err)
 		return
 	}

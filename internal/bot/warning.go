@@ -26,7 +26,7 @@ func (b *Bot) ensureWarningMessage(guildID, channelID snowflake.ID) error {
 	if ch == nil {
 		return fmt.Errorf("channel %d is not a registered honeypot channel", channelID)
 	}
-	count, err := b.store.CountEventsByGuild(guildID)
+	count, err := b.store.CountEventsByGuild(b.ctx, guildID)
 	if err != nil {
 		return fmt.Errorf("counting events: %w", err)
 	}
@@ -48,7 +48,7 @@ func (b *Bot) ensureWarningMessage(guildID, channelID snowflake.ID) error {
 		if err := b.updateWarningMessage(channelID, adopt.ID, components); err != nil {
 			b.log.Warn("updating adopted warning message", "channel", channelID, "msg", adopt.ID, "err", err)
 		}
-		if err := b.store.SetWarningMsg(channelID, &adopt.ID); err != nil {
+		if err := b.store.SetWarningMsg(b.ctx, channelID, &adopt.ID); err != nil {
 			return fmt.Errorf("storing adopted warning msg id: %w", err)
 		}
 		for _, extra := range extras {
@@ -66,7 +66,7 @@ func (b *Bot) ensureWarningMessage(guildID, channelID snowflake.ID) error {
 	if err != nil {
 		return fmt.Errorf("posting warning message: %w", err)
 	}
-	if err := b.store.SetWarningMsg(channelID, &msg.ID); err != nil {
+	if err := b.store.SetWarningMsg(b.ctx, channelID, &msg.ID); err != nil {
 		return fmt.Errorf("storing warning msg id: %w", err)
 	}
 	return nil

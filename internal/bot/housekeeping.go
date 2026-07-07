@@ -26,31 +26,31 @@ func (b *Bot) handleContainerDelete(guildID, containerID snowflake.ID, kind stri
 		return
 	}
 	if ch != nil {
-		if err := b.store.RemoveChannel(containerID); err != nil {
+		if err := b.store.RemoveChannel(b.ctx, containerID); err != nil {
 			b.log.Error("removing deleted honeypot "+kind, "guild", guildID, "channel", containerID, "err", err)
 		}
 		return
 	}
-	cfg, err := b.store.GetConfig(guildID)
+	cfg, err := b.store.GetConfig(b.ctx, guildID)
 	if err != nil {
 		b.log.Error("loading config for deleted "+kind, "guild", guildID, "channel", containerID, "err", err)
 		return
 	}
 	if cfg != nil && cfg.LogChannelID != nil && *cfg.LogChannelID == containerID {
-		if err := b.store.UnsetLogChannel(guildID); err != nil {
+		if err := b.store.UnsetLogChannel(b.ctx, guildID); err != nil {
 			b.log.Error("unsetting deleted log "+kind, "guild", guildID, "channel", containerID, "err", err)
 		}
 	}
 }
 
 func (b *Bot) onMessageDelete(e *events.GuildMessageDelete) {
-	if err := b.store.ClearWarningMsgByMsgID(e.MessageID); err != nil {
+	if err := b.store.ClearWarningMsgByMsgID(b.ctx, e.MessageID); err != nil {
 		b.log.Error("clearing warning msg id", "guild", e.GuildID, "msg", e.MessageID, "err", err)
 	}
 }
 
 func (b *Bot) onGuildLeave(e *events.GuildLeave) {
-	if err := b.store.DeleteGuild(e.Guild.ID); err != nil {
+	if err := b.store.DeleteGuild(b.ctx, e.Guild.ID); err != nil {
 		b.log.Error("purging guild config", "guild", e.Guild.ID, "err", err)
 	}
 }

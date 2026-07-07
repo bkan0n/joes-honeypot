@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 
@@ -42,12 +43,12 @@ func idPtr(n sql.NullInt64) *snowflake.ID {
 	return &id
 }
 
-func (s *Store) GetConfig(guildID snowflake.ID) (*Config, error) {
+func (s *Store) GetConfig(ctx context.Context, guildID snowflake.ID) (*Config, error) {
 	var (
 		logCh  sql.NullInt64
 		action string
 	)
-	err := s.db.QueryRow(
+	err := s.db.QueryRowContext(ctx,
 		`SELECT log_channel_id, action FROM honeypot_config WHERE guild_id = ?`, int64(guildID),
 	).Scan(&logCh, &action)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -59,8 +60,8 @@ func (s *Store) GetConfig(guildID snowflake.ID) (*Config, error) {
 	return &Config{GuildID: guildID, LogChannelID: idPtr(logCh), Action: Action(action)}, nil
 }
 
-func (s *Store) UpsertConfig(cfg Config) error {
-	_, err := s.db.Exec(`INSERT INTO honeypot_config (guild_id, log_channel_id, action) VALUES (?, ?, ?)
+func (s *Store) UpsertConfig(ctx context.Context, cfg Config) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO honeypot_config (guild_id, log_channel_id, action) VALUES (?, ?, ?)
 		ON CONFLICT(guild_id) DO UPDATE SET log_channel_id = excluded.log_channel_id, action = excluded.action`,
 		int64(cfg.GuildID), nullID(cfg.LogChannelID), string(cfg.Action))
 	return err
@@ -137,13 +138,13 @@ func (s *Store) AllChannels() ([]Channel, error) {
 
 // setChannelTx makes channelID the guild's only honeypot channel row,
 // keeping its msg_id if the row already exists.
-func setChannelTx(tx *sql.Tx, guildID, channelID snowflake.ID) error {
-	_, err := tx.Exec(`DELETE FROM honeypot_channels WHERE guild_id = ? AND channel_id != ?`,
+func setChannelTx(ctx context.Context, tx *sql.Tx, guildID, channelID snowflake.ID) error {
+	_, err := tx.ExecContext(ctx, `DELETE FROM honeypot_channels WHERE guild_id = ? AND channel_id != ?`,
 		int64(guildID), int64(channelID))
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(`INSERT INTO honeypot_channels (channel_id, guild_id) VALUES (?, ?)
+	_, err = tx.ExecContext(ctx, `INSERT INTO honeypot_channels (channel_id, guild_id) VALUES (?, ?)
 		ON CONFLICT(channel_id) DO NOTHING`, int64(channelID), int64(guildID))
 	return err
 }
@@ -163,12 +164,12 @@ func (s *Store) applyChannelSwap(guildID, channelID snowflake.ID) {
 	}
 }
 
-func (s *Store) SetChannel(guildID, channelID snowflake.ID) error {
-	tx, err := s.db.Begin()
+func (s *Store) SetChannel(ctx context.Context, guildID, channelID snowflake.ID) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	if err := setChannelTx(tx, guildID, channelID); err != nil {
+	if err := setChannelTx(ctx, tx, guildID, channelID); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -183,19 +184,19 @@ func (s *Store) SetChannel(guildID, channelID snowflake.ID) error {
 // its honeypot channel — one transaction, so a failure can't leave the
 // config changed but the channel not (config goes first: the channel row's
 // FK references it).
-func (s *Store) SaveGuildSetup(cfg Config, channelID snowflake.ID) error {
-	tx, err := s.db.Begin()
+func (s *Store) SaveGuildSetup(ctx context.Context, cfg Config, channelID snowflake.ID) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(`INSERT INTO honeypot_config (guild_id, log_channel_id, action) VALUES (?, ?, ?)
+	_, err = tx.ExecContext(ctx, `INSERT INTO honeypot_config (guild_id, log_channel_id, action) VALUES (?, ?, ?)
 		ON CONFLICT(guild_id) DO UPDATE SET log_channel_id = excluded.log_channel_id, action = excluded.action`,
 		int64(cfg.GuildID), nullID(cfg.LogChannelID), string(cfg.Action))
 	if err != nil {
 		_ = tx.Rollback()
 		return err
 	}
-	if err := setChannelTx(tx, cfg.GuildID, channelID); err != nil {
+	if err := setChannelTx(ctx, tx, cfg.GuildID, channelID); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -206,8 +207,8 @@ func (s *Store) SaveGuildSetup(cfg Config, channelID snowflake.ID) error {
 	return nil
 }
 
-func (s *Store) SetWarningMsg(channelID snowflake.ID, msgID *snowflake.ID) error {
-	_, err := s.db.Exec(`UPDATE honeypot_channels SET msg_id = ? WHERE channel_id = ?`,
+func (s *Store) SetWarningMsg(ctx context.Context, channelID snowflake.ID, msgID *snowflake.ID) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE honeypot_channels SET msg_id = ? WHERE channel_id = ?`,
 		nullID(msgID), int64(channelID))
 	if err != nil {
 		return err
@@ -225,7 +226,7 @@ func (s *Store) SetWarningMsg(channelID snowflake.ID, msgID *snowflake.ID) error
 	return nil
 }
 
-func (s *Store) ClearWarningMsgByMsgID(msgID snowflake.ID) error {
+func (s *Store) ClearWarningMsgByMsgID(ctx context.Context, msgID snowflake.ID) error {
 	// The map is authoritative, and this runs for every message deleted in
 	// every guild — skip the DB write unless msgID is a known warning
 	// message (bulk purges would otherwise become write storms).
@@ -241,7 +242,7 @@ func (s *Store) ClearWarningMsgByMsgID(msgID snowflake.ID) error {
 	if !known {
 		return nil
 	}
-	_, err := s.db.Exec(`UPDATE honeypot_channels SET msg_id = NULL WHERE msg_id = ?`, int64(msgID))
+	_, err := s.db.ExecContext(ctx, `UPDATE honeypot_channels SET msg_id = NULL WHERE msg_id = ?`, int64(msgID))
 	if err != nil {
 		return err
 	}
@@ -256,13 +257,13 @@ func (s *Store) ClearWarningMsgByMsgID(msgID snowflake.ID) error {
 	return nil
 }
 
-func (s *Store) UnsetLogChannel(guildID snowflake.ID) error {
-	_, err := s.db.Exec(`UPDATE honeypot_config SET log_channel_id = NULL WHERE guild_id = ?`, int64(guildID))
+func (s *Store) UnsetLogChannel(ctx context.Context, guildID snowflake.ID) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE honeypot_config SET log_channel_id = NULL WHERE guild_id = ?`, int64(guildID))
 	return err
 }
 
-func (s *Store) RemoveChannel(channelID snowflake.ID) error {
-	_, err := s.db.Exec(`DELETE FROM honeypot_channels WHERE channel_id = ?`, int64(channelID))
+func (s *Store) RemoveChannel(ctx context.Context, channelID snowflake.ID) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM honeypot_channels WHERE channel_id = ?`, int64(channelID))
 	if err != nil {
 		return err
 	}
@@ -272,8 +273,8 @@ func (s *Store) RemoveChannel(channelID snowflake.ID) error {
 	return nil
 }
 
-func (s *Store) DeleteGuild(guildID snowflake.ID) error {
-	_, err := s.db.Exec(`DELETE FROM honeypot_config WHERE guild_id = ?`, int64(guildID))
+func (s *Store) DeleteGuild(ctx context.Context, guildID snowflake.ID) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM honeypot_config WHERE guild_id = ?`, int64(guildID))
 	if err != nil {
 		return err
 	}
@@ -288,14 +289,14 @@ func (s *Store) DeleteGuild(guildID snowflake.ID) error {
 	return nil
 }
 
-func (s *Store) RecordEvent(guildID, userID, channelID snowflake.ID) error {
-	_, err := s.db.Exec(`INSERT INTO honeypot_events (guild_id, user_id, channel_id) VALUES (?, ?, ?)`,
+func (s *Store) RecordEvent(ctx context.Context, guildID, userID, channelID snowflake.ID) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO honeypot_events (guild_id, user_id, channel_id) VALUES (?, ?, ?)`,
 		int64(guildID), int64(userID), int64(channelID))
 	return err
 }
 
-func (s *Store) CountEventsByGuild(guildID snowflake.ID) (int64, error) {
+func (s *Store) CountEventsByGuild(ctx context.Context, guildID snowflake.ID) (int64, error) {
 	var n int64
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM honeypot_events WHERE guild_id = ?`, int64(guildID)).Scan(&n)
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM honeypot_events WHERE guild_id = ?`, int64(guildID)).Scan(&n)
 	return n, err
 }

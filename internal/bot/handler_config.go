@@ -55,7 +55,7 @@ func (b *Bot) onCommand(e *events.ApplicationCommandInteractionCreate) {
 	if e.Data.CommandName() != "honeypot" || e.GuildID() == nil {
 		return
 	}
-	cfg, err := b.store.GetConfig(*e.GuildID())
+	cfg, err := b.store.GetConfig(b.ctx, *e.GuildID())
 	if err != nil {
 		b.log.Error("loading config for modal", "guild", *e.GuildID(), "err", err)
 		b.replyEphemeral(e, "Something went wrong loading the config.")
@@ -125,7 +125,7 @@ func (b *Bot) onModalSubmit(e *events.ModalSubmitInteractionCreate) {
 	if err != nil {
 		b.log.Error("loading previous channel", "guild", guildID, "err", err)
 	}
-	if err := b.store.SaveGuildSetup(store.Config{GuildID: guildID, LogChannelID: sub.LogChannelID, Action: sub.Action}, sub.HoneypotChannelID); err != nil {
+	if err := b.store.SaveGuildSetup(b.ctx, store.Config{GuildID: guildID, LogChannelID: sub.LogChannelID, Action: sub.Action}, sub.HoneypotChannelID); err != nil {
 		b.log.Error("saving guild setup", "guild", guildID, "err", err)
 		b.editDeferredReply(e, "Something went wrong saving the config. No settings have been changed.")
 		return

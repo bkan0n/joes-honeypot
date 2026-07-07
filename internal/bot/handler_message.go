@@ -31,7 +31,7 @@ func (b *Bot) onMessageCreate(e *events.MessageCreate) {
 		b.handleMentionRefresh(e)
 		return
 	}
-	cfg, err := b.store.GetConfig(guildID)
+	cfg, err := b.store.GetConfig(b.ctx, guildID)
 	if err != nil {
 		b.log.Error("loading config", "guild", guildID, "err", err)
 		return
@@ -143,7 +143,7 @@ func (b *Bot) moderate(plan moderationPlan, cfg *store.Config, channelID snowfla
 		}
 	}
 
-	if err := b.store.RecordEvent(guildID, msg.Author.ID, channelID); err != nil {
+	if err := b.store.RecordEvent(b.ctx, guildID, msg.Author.ID, channelID); err != nil {
 		b.log.Error("recording event", "guild", guildID, "user", msg.Author.ID, "err", err)
 	}
 
@@ -176,7 +176,7 @@ func (b *Bot) sendLog(cfg *store.Config, msg discord.MessageCreate) bool {
 		return true
 	} else if isPermanentChannelError(err) {
 		b.log.Warn("log channel unusable, unsetting", "channel", *cfg.LogChannelID, "err", err)
-		if dbErr := b.store.UnsetLogChannel(cfg.GuildID); dbErr != nil {
+		if dbErr := b.store.UnsetLogChannel(b.ctx, cfg.GuildID); dbErr != nil {
 			b.log.Error("unsetting log channel", "err", dbErr)
 		}
 	} else {

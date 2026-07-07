@@ -49,7 +49,7 @@ func IntroMessage(missingBanPerm bool) string {
 	msg := "## 🍯 Joe's Honeypot is set up!\n" +
 		"Any non-admin account that posts in the honeypot channel will be softbanned " +
 		"(banned and unbanned, deleting their last hour of messages).\n" +
-		"Use </honeypot:0> to change the channel, set a log channel, or switch the action.\n" +
+		"Use the `/honeypot` command to change the channel, set a log channel, or switch the action.\n" +
 		"-# This message deletes itself in a few minutes."
 	if missingBanPerm {
 		msg += "\n\n⚠️ **I am missing the Ban Members permission** — I cannot take any action until it is granted."

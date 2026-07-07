@@ -66,6 +66,14 @@ func warningMsg(id snowflake.ID, authorID snowflake.ID) discord.Message {
 	}
 }
 
+func cv2WarningMsg(id snowflake.ID, authorID snowflake.ID) discord.Message {
+	return discord.Message{
+		ID:         id,
+		Author:     discord.User{ID: authorID},
+		Components: WarningMessageComponents(5),
+	}
+}
+
 func otherMsg(id snowflake.ID, authorID snowflake.ID) discord.Message {
 	return discord.Message{
 		ID:      id,
@@ -101,6 +109,23 @@ func TestSelectWarningMessage(t *testing.T) {
 				warningMsg(20, botID),
 			},
 			wantAdopt: idPtr(20),
+		},
+		{
+			name: "components-v2 format matched",
+			msgs: []discord.Message{
+				otherMsg(10, botID),
+				cv2WarningMsg(20, botID),
+			},
+			wantAdopt: idPtr(20),
+		},
+		{
+			name: "mixed legacy and v2: oldest adopted",
+			msgs: []discord.Message{
+				cv2WarningMsg(30, botID),
+				warningMsg(10, botID),
+			},
+			wantAdopt:  idPtr(10),
+			wantExtras: []snowflake.ID{30},
 		},
 		{
 			name: "multiple matches: oldest (smallest ID) adopted, rest are extras",

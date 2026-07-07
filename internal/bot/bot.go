@@ -26,6 +26,8 @@ type Bot struct {
 	Log    *slog.Logger
 	Dedup  *cache.TTL[dedupKey, struct{}]
 	DMs    *cache.TTL[snowflake.ID, snowflake.ID]
+
+	ownerID snowflake.ID // bot application owner, allowed to use "@bot refresh"
 }
 
 func New(token string, st *store.Store, log *slog.Logger) (*Bot, error) {
@@ -67,6 +69,11 @@ func New(token string, st *store.Store, log *slog.Logger) (*Bot, error) {
 }
 
 func (b *Bot) Start(ctx context.Context) error {
+	if app, err := b.Client.Rest.GetBotApplicationInfo(); err != nil {
+		b.Log.Warn("fetching application owner; @refresh command disabled", "err", err)
+	} else if app.Owner != nil {
+		b.ownerID = app.Owner.ID
+	}
 	if err := handler.SyncCommands(b.Client, commands(), nil); err != nil {
 		return err
 	}

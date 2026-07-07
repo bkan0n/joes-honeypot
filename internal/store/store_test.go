@@ -11,7 +11,7 @@ func openTest(t *testing.T) *Store {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	t.Cleanup(func() { s.Close() })
+	t.Cleanup(func() { _ = s.Close() })
 	return s
 }
 
@@ -33,10 +33,14 @@ func TestOpenIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s1.Close()
+	if err := s1.Close(); err != nil {
+		t.Fatalf("closing first store: %v", err)
+	}
 	s2, err := Open(path) // migrations must not re-run/fail
 	if err != nil {
 		t.Fatalf("second Open: %v", err)
 	}
-	s2.Close()
+	if err := s2.Close(); err != nil {
+		t.Fatalf("closing second store: %v", err)
+	}
 }

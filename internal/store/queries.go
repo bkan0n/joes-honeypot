@@ -91,6 +91,26 @@ func (s *Store) GetChannelByID(channelID snowflake.ID) (*Channel, error) {
 		`SELECT channel_id, guild_id, msg_id FROM honeypot_channels WHERE channel_id = ?`, int64(channelID)))
 }
 
+func (s *Store) AllChannels() ([]Channel, error) {
+	rows, err := s.db.Query(`SELECT channel_id, guild_id, msg_id FROM honeypot_channels`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []Channel
+	for rows.Next() {
+		var (
+			chID, gID int64
+			msgID     sql.NullInt64
+		)
+		if err := rows.Scan(&chID, &gID, &msgID); err != nil {
+			return nil, err
+		}
+		out = append(out, Channel{ChannelID: snowflake.ID(chID), GuildID: snowflake.ID(gID), MsgID: idPtr(msgID)})
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) SetChannel(guildID, channelID snowflake.ID) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -99,13 +119,13 @@ func (s *Store) SetChannel(guildID, channelID snowflake.ID) error {
 	_, err = tx.Exec(`DELETE FROM honeypot_channels WHERE guild_id = ? AND channel_id != ?`,
 		int64(guildID), int64(channelID))
 	if err != nil {
-		tx.Rollback()
+		_ = tx.Rollback()
 		return err
 	}
 	_, err = tx.Exec(`INSERT INTO honeypot_channels (channel_id, guild_id) VALUES (?, ?)
 		ON CONFLICT(channel_id) DO NOTHING`, int64(channelID), int64(guildID))
 	if err != nil {
-		tx.Rollback()
+		_ = tx.Rollback()
 		return err
 	}
 	return tx.Commit()

@@ -34,7 +34,11 @@ func main() {
 		log.Error("opening database", "path", dbPath, "err", err)
 		os.Exit(1)
 	}
-	defer st.Close()
+	defer func() {
+		if err := st.Close(); err != nil {
+			log.Error("closing database", "err", err)
+		}
+	}()
 
 	b, err := bot.New(token, st, log)
 	if err != nil {

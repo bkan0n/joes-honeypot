@@ -33,7 +33,7 @@ func Open(path string) (*Store, error) {
 	// A single connection sidesteps SQLITE_BUSY entirely at this bot's scale.
 	db.SetMaxOpenConns(1)
 	if err := migrate(db); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return &Store{db: db}, nil
@@ -76,11 +76,11 @@ func migrate(db *sql.DB) error {
 			return err
 		}
 		if _, err := tx.Exec(string(sqlText)); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("migration %s: %w", base, err)
 		}
 		if _, err := tx.Exec(`INSERT INTO _migrations (version, name) VALUES (?, ?)`, version, base); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return err
 		}
 		if err := tx.Commit(); err != nil {

@@ -99,13 +99,13 @@ func (s *Store) SetChannel(guildID, channelID snowflake.ID) error {
 	_, err = tx.Exec(`DELETE FROM honeypot_channels WHERE guild_id = ? AND channel_id != ?`,
 		int64(guildID), int64(channelID))
 	if err != nil {
-		tx.Rollback()
+		_ = tx.Rollback()
 		return err
 	}
 	_, err = tx.Exec(`INSERT INTO honeypot_channels (channel_id, guild_id) VALUES (?, ?)
 		ON CONFLICT(channel_id) DO NOTHING`, int64(channelID), int64(guildID))
 	if err != nil {
-		tx.Rollback()
+		_ = tx.Rollback()
 		return err
 	}
 	return tx.Commit()

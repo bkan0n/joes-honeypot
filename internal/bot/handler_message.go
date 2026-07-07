@@ -23,12 +23,20 @@ func (b *Bot) onMessageCreate(e *events.MessageCreate) {
 		return
 	}
 	hpChannel, err := b.Store.GetChannelByID(e.ChannelID)
-	if err != nil || hpChannel == nil || hpChannel.GuildID != guildID {
+	if err != nil {
+		b.Log.Error("loading honeypot channel", "guild", guildID, "channel", e.ChannelID, "err", err)
+		return
+	}
+	if hpChannel == nil || hpChannel.GuildID != guildID {
 		b.handleMentionRefresh(e)
 		return
 	}
 	cfg, err := b.Store.GetConfig(guildID)
-	if err != nil || cfg == nil {
+	if err != nil {
+		b.Log.Error("loading config", "guild", guildID, "err", err)
+		return
+	}
+	if cfg == nil {
 		return
 	}
 
@@ -39,14 +47,17 @@ func (b *Bot) onMessageCreate(e *events.MessageCreate) {
 	defer b.Dedup.Delete(key) // allow re-punishing a rejoining user
 
 	// Best-effort honey react.
-	go func() {
+	b.safeGo(func() {
 		if err := b.Client.Rest.AddReaction(e.ChannelID, msg.ID, "🍯"); err != nil {
-			b.Log.Debug("adding reaction", "err", err)
+			b.Log.Debug("adding reaction", "channel", e.ChannelID, "err", err)
 		}
-	}()
+	})
 
 	inputs := b.gatherExemptionInputs(guildID, msg)
-	exempt := IsExempt(msg.Author.ID, inputs.OwnerID, inputs.MemberRoles, inputs.AdminRoles)
+	exempt := IsExempt(msg.Author.ID, inputs.OwnerID, inputs.MemberRoles, func(roleID snowflake.ID) bool {
+		role, ok := b.Client.Caches.Role(guildID, roleID)
+		return ok && isAdminRole(role)
+	})
 	b.moderate(decideModeration(cfg.Action, exempt), cfg, e.ChannelID, msg, inputs.GuildName)
 }
 
@@ -57,19 +68,13 @@ type exemptionInputs struct {
 	GuildName   string
 	OwnerID     snowflake.ID
 	MemberRoles []snowflake.ID
-	AdminRoles  map[snowflake.ID]struct{}
 }
 
 func (b *Bot) gatherExemptionInputs(guildID snowflake.ID, msg discord.Message) exemptionInputs {
-	in := exemptionInputs{GuildName: "this server", AdminRoles: map[snowflake.ID]struct{}{}}
+	in := exemptionInputs{GuildName: "this server"}
 	if guild, ok := b.Client.Caches.Guild(guildID); ok {
 		in.GuildName = guild.Name
 		in.OwnerID = guild.OwnerID
-	}
-	for role := range b.Client.Caches.Roles(guildID) {
-		if !role.Managed && role.Permissions.Has(discord.PermissionAdministrator) {
-			in.AdminRoles[role.ID] = struct{}{}
-		}
 	}
 	if msg.Member != nil {
 		in.MemberRoles = msg.Member.RoleIDs
@@ -83,11 +88,11 @@ func (b *Bot) gatherExemptionInputs(guildID snowflake.ID, msg discord.Message) e
 func (b *Bot) moderate(plan moderationPlan, cfg *store.Config, channelID snowflake.ID, msg discord.Message, guildName string) {
 	guildID := cfg.GuildID
 	if plan.NotifyExempt {
-		go func() {
+		b.safeGo(func() {
 			if err := b.dmUser(msg.Author.ID, ExemptDMMessage(guildName)); err != nil {
 				b.Log.Debug("exempt dm failed", "user", msg.Author.ID, "err", err)
 			}
-		}()
+		})
 		b.sendLog(cfg, discord.MessageCreate{Content: ExemptLogMessage(msg.Author.ID)})
 		return
 	}
@@ -99,12 +104,12 @@ func (b *Bot) moderate(plan moderationPlan, cfg *store.Config, channelID snowfla
 		// DM before the ban so Discord still delivers it — but never delay
 		// the action more than 2s.
 		dmDone := make(chan struct{})
-		go func() {
+		b.safeGo(func() {
 			defer close(dmDone)
 			if err := b.dmUser(msg.Author.ID, DMMessage(cfg.Action, guildName)); err != nil {
 				b.Log.Debug("dm failed", "user", msg.Author.ID, "err", err)
 			}
-		}()
+		})
 		select {
 		case <-dmDone:
 		case <-time.After(2 * time.Second):
@@ -135,7 +140,7 @@ func (b *Bot) moderate(plan moderationPlan, cfg *store.Config, channelID snowfla
 	}
 
 	if err := b.Store.RecordEvent(guildID, msg.Author.ID, channelID); err != nil {
-		b.Log.Error("recording event", "err", err)
+		b.Log.Error("recording event", "guild", guildID, "user", msg.Author.ID, "err", err)
 	}
 
 	logMsg := discord.MessageCreate{Content: LogMessage(msg.Author.ID, cfg.Action)}
@@ -147,7 +152,9 @@ func (b *Bot) moderate(plan moderationPlan, cfg *store.Config, channelID snowfla
 		}
 	}
 	b.sendLog(cfg, logMsg)
-	b.ensureWarningMessage(guildID, channelID)
+	if err := b.ensureWarningMessage(guildID, channelID); err != nil {
+		b.Log.Warn("refreshing warning message after moderation", "guild", guildID, "channel", channelID, "err", err)
+	}
 	b.Log.Info("moderated", "guild", guildID, "user", msg.Author.ID, "action", cfg.Action)
 }
 
@@ -183,7 +190,7 @@ func (b *Bot) sendAlert(cfg *store.Config, fallbackChannelID snowflake.ID, msg d
 		return
 	}
 	if _, err := b.Client.Rest.CreateMessage(fallbackChannelID, msg); err != nil {
-		b.Log.Debug("fallback alert failed", "err", err)
+		b.Log.Error("alert dropped: fallback channel send failed", "guild", cfg.GuildID, "channel", fallbackChannelID, "err", err)
 	}
 }
 

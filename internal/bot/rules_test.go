@@ -31,15 +31,32 @@ func TestIsTriggerMessage(t *testing.T) {
 }
 
 func TestIsExempt(t *testing.T) {
-	admin := map[snowflake.ID]struct{}{10: {}}
-	if !IsExempt(1, 1, nil, nil) {
+	admin := func(id snowflake.ID) bool { return id == 10 }
+	if !IsExempt(1, 1, nil, admin) {
 		t.Error("owner must be exempt")
 	}
-	if !IsExempt(2, 1, []snowflake.ID{10}, admin) {
+	if !IsExempt(2, 1, []snowflake.ID{11, 10}, admin) {
 		t.Error("admin-role member must be exempt")
 	}
 	if IsExempt(2, 1, []snowflake.ID{11}, admin) {
 		t.Error("regular member must not be exempt")
+	}
+}
+
+func TestIsAdminRole(t *testing.T) {
+	cases := []struct {
+		name string
+		role discord.Role
+		want bool
+	}{
+		{"admin role", discord.Role{Permissions: discord.PermissionAdministrator}, true},
+		{"managed admin role (bot role)", discord.Role{Managed: true, Permissions: discord.PermissionAdministrator}, false},
+		{"non-admin role", discord.Role{Permissions: discord.PermissionBanMembers}, false},
+	}
+	for _, c := range cases {
+		if got := isAdminRole(c.role); got != c.want {
+			t.Errorf("%s: isAdminRole = %v, want %v", c.name, got, c.want)
+		}
 	}
 }
 

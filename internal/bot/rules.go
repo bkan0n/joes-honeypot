@@ -20,18 +20,25 @@ func IsTriggerMessage(authorIsBot bool, msgType discord.MessageType) bool {
 }
 
 // IsExempt reports whether the author must not be actioned: the server owner,
-// or any member holding a non-managed role with the Administrator permission
-// (adminRoleIDs is precomputed from the role cache).
-func IsExempt(authorID, ownerID snowflake.ID, memberRoleIDs []snowflake.ID, adminRoleIDs map[snowflake.ID]struct{}) bool {
+// or any member holding a role that roleIsAdmin reports as exempting
+// (see isAdminRole; the caller injects the role-cache lookup).
+func IsExempt(authorID, ownerID snowflake.ID, memberRoleIDs []snowflake.ID, roleIsAdmin func(snowflake.ID) bool) bool {
 	if authorID == ownerID {
 		return true
 	}
 	for _, r := range memberRoleIDs {
-		if _, ok := adminRoleIDs[r]; ok {
+		if roleIsAdmin(r) {
 			return true
 		}
 	}
 	return false
+}
+
+// isAdminRole reports whether holding this role exempts a member from the
+// honeypot: a non-managed role with the Administrator permission. Managed
+// (bot/integration) roles don't count — spam bots can carry them.
+func isAdminRole(role discord.Role) bool {
+	return !role.Managed && role.Permissions.Has(discord.PermissionAdministrator)
 }
 
 // UnbanExpired reports whether an unban button is too old to honor (24h).

@@ -36,3 +36,17 @@ func (b *Bot) replyEphemeral(e interactionReplier, content string) {
 		b.Log.Error("sending ephemeral reply", "err", err)
 	}
 }
+
+// safeGo runs fn on a new goroutine, recovering and logging a panic instead
+// of letting it kill the whole process. disgo recovers panics in listener
+// goroutines, but not in goroutines we spawn ourselves.
+func (b *Bot) safeGo(fn func()) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				b.Log.Error("panic in background goroutine", "panic", r)
+			}
+		}()
+		fn()
+	}()
+}

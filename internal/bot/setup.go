@@ -65,8 +65,8 @@ func (b *Bot) onGuildJoin(e *events.GuildJoin) {
 		}
 		return
 	}
-	if !b.ensureWarningMessage(guildID, honeypotID) {
-		b.Log.Warn("posting warning message during auto-setup", "guild", guildID, "channel", honeypotID)
+	if err := b.ensureWarningMessage(guildID, honeypotID); err != nil {
+		b.Log.Warn("posting warning message during auto-setup", "guild", guildID, "channel", honeypotID, "err", err)
 	}
 
 	missingBan := !b.botPermissionsInChannel(guildID, honeypot).Has(discord.PermissionBanMembers)

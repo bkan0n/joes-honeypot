@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/disgoorg/disgo/discord"
@@ -14,22 +15,24 @@ const warningMessagePrefix = "## ⚠️"
 
 // ensureWarningMessage posts the persistent warning (with counter button) if
 // the channel has none recorded, otherwise refreshes the counter label.
-// It returns true when the warning message is confirmed posted or updated
-// (with its msg_id stored or already current), and false on any failure.
-func (b *Bot) ensureWarningMessage(guildID, channelID snowflake.ID) bool {
+// It returns nil when the warning message is confirmed posted or updated
+// (with its msg_id stored or already current).
+func (b *Bot) ensureWarningMessage(guildID, channelID snowflake.ID) error {
 	ch, err := b.Store.GetChannelByID(channelID)
-	if err != nil || ch == nil {
-		return false
+	if err != nil {
+		return fmt.Errorf("loading channel: %w", err)
+	}
+	if ch == nil {
+		return fmt.Errorf("channel %d is not a registered honeypot channel", channelID)
 	}
 	count, err := b.Store.CountEventsByGuild(guildID)
 	if err != nil {
-		b.Log.Error("counting events", "err", err)
-		return false
+		return fmt.Errorf("counting events: %w", err)
 	}
 	components := WarningMessageComponents(count)
 	if ch.MsgID != nil {
-		if b.updateWarningMessage(channelID, *ch.MsgID, components) {
-			return true
+		if err := b.updateWarningMessage(channelID, *ch.MsgID, components); err == nil {
+			return nil
 		}
 		// Message gone (deleted manually) — fall through and repost.
 	}
@@ -41,19 +44,18 @@ func (b *Bot) ensureWarningMessage(guildID, channelID snowflake.ID) bool {
 	if recent, err := b.Client.Rest.GetMessages(channelID, 0, 0, 0, 50); err != nil {
 		b.Log.Warn("listing messages for warning-message dedup", "channel", channelID, "err", err)
 	} else if adopt, extras := selectWarningMessage(recent, b.Client.ID()); adopt != nil {
-		if !b.updateWarningMessage(channelID, adopt.ID, components) {
-			b.Log.Warn("updating adopted warning message", "channel", channelID, "msg", adopt.ID)
+		if err := b.updateWarningMessage(channelID, adopt.ID, components); err != nil {
+			b.Log.Warn("updating adopted warning message", "channel", channelID, "msg", adopt.ID, "err", err)
 		}
 		if err := b.Store.SetWarningMsg(channelID, &adopt.ID); err != nil {
-			b.Log.Error("storing adopted warning msg id", "err", err)
-			return false
+			return fmt.Errorf("storing adopted warning msg id: %w", err)
 		}
 		for _, extra := range extras {
 			if err := b.Client.Rest.DeleteMessage(channelID, extra.ID); err != nil {
 				b.Log.Warn("deleting duplicate warning message", "channel", channelID, "msg", extra.ID, "err", err)
 			}
 		}
-		return true
+		return nil
 	}
 
 	msg, err := b.Client.Rest.CreateMessage(channelID, discord.MessageCreate{
@@ -61,37 +63,32 @@ func (b *Bot) ensureWarningMessage(guildID, channelID snowflake.ID) bool {
 		Components: components,
 	})
 	if err != nil {
-		b.Log.Error("posting warning message", "channel", channelID, "err", err)
-		return false
+		return fmt.Errorf("posting warning message: %w", err)
 	}
 	if err := b.Store.SetWarningMsg(channelID, &msg.ID); err != nil {
-		b.Log.Error("storing warning msg id", "err", err)
-		return false
+		return fmt.Errorf("storing warning msg id: %w", err)
 	}
-	return true
+	return nil
 }
 
 // updateWarningMessage edits an existing message in place into the current
 // Components-V2 warning layout. It first tries a plain components update
 // (the message is already CV2), then retries with the CV2 flag set and the
 // content cleared, which converts a legacy plain-content warning message.
-func (b *Bot) updateWarningMessage(channelID, msgID snowflake.ID, components []discord.LayoutComponent) bool {
+func (b *Bot) updateWarningMessage(channelID, msgID snowflake.ID, components []discord.LayoutComponent) error {
 	if _, err := b.Client.Rest.UpdateMessage(channelID, msgID, discord.MessageUpdate{
 		Components: &components,
 	}); err == nil {
-		return true
+		return nil
 	}
 	empty := ""
 	flags := discord.MessageFlagIsComponentsV2
-	if _, err := b.Client.Rest.UpdateMessage(channelID, msgID, discord.MessageUpdate{
+	_, err := b.Client.Rest.UpdateMessage(channelID, msgID, discord.MessageUpdate{
 		Content:    &empty,
 		Flags:      &flags,
 		Components: &components,
-	}); err != nil {
-		b.Log.Debug("updating warning message", "channel", channelID, "msg", msgID, "err", err)
-		return false
-	}
-	return true
+	})
+	return err
 }
 
 // isWarningMessage reports whether a message looks like our persistent

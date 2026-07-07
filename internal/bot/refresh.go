@@ -37,10 +37,10 @@ func (b *Bot) handleMentionRefresh(e *events.MessageCreate) {
 	}
 	var updated int
 	for _, ch := range channels {
-		if b.ensureWarningMessage(ch.GuildID, ch.ChannelID) {
-			updated++
+		if err := b.ensureWarningMessage(ch.GuildID, ch.ChannelID); err != nil {
+			b.Log.Warn("warning-message refresh failed", "guild", ch.GuildID, "channel", ch.ChannelID, "err", err)
 		} else {
-			b.Log.Warn("warning-message refresh failed", "guild", ch.GuildID, "channel", ch.ChannelID)
+			updated++
 		}
 	}
 	if _, err := b.Client.Rest.CreateMessage(e.ChannelID, discord.MessageCreate{

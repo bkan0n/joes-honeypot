@@ -130,9 +130,10 @@ func (b *Bot) onModalSubmit(e *events.ModalSubmitInteractionCreate) {
 			b.Log.Warn("deleting old warning message", "err", err)
 		}
 	}
-	if b.ensureWarningMessage(guildID, sub.HoneypotChannelID) {
-		b.replyEphemeral(e, fmt.Sprintf("🍯 Honeypot configured: <#%d>, action **%s**.", sub.HoneypotChannelID, sub.Action))
-	} else {
+	if err := b.ensureWarningMessage(guildID, sub.HoneypotChannelID); err != nil {
+		b.Log.Warn("posting warning message after config change", "guild", guildID, "channel", sub.HoneypotChannelID, "err", err)
 		b.replyEphemeral(e, fmt.Sprintf("🍯 Honeypot configured: <#%d>, action **%s**.\n⚠️ I couldn't post the warning message in the honeypot channel — check my View/Send permissions there.", sub.HoneypotChannelID, sub.Action))
+	} else {
+		b.replyEphemeral(e, fmt.Sprintf("🍯 Honeypot configured: <#%d>, action **%s**.", sub.HoneypotChannelID, sub.Action))
 	}
 }

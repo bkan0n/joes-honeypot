@@ -53,6 +53,28 @@ func TestUnbanExpired(t *testing.T) {
 	}
 }
 
+func TestDecideModeration(t *testing.T) {
+	cases := []struct {
+		name   string
+		action store.Action
+		exempt bool
+		want   moderationPlan
+	}{
+		{"softban", store.ActionSoftban, false, moderationPlan{DM: true, Ban: true, Unban: true}},
+		{"ban", store.ActionBan, false, moderationPlan{DM: true, Ban: true, UnbanButton: true}},
+		{"disabled", store.ActionDisabled, false, moderationPlan{}},
+		{"softban exempt", store.ActionSoftban, true, moderationPlan{NotifyExempt: true}},
+		{"ban exempt", store.ActionBan, true, moderationPlan{NotifyExempt: true}},
+		{"disabled exempt: no exempt notification either", store.ActionDisabled, true, moderationPlan{}},
+		{"unknown action", store.Action("bogus"), false, moderationPlan{}},
+	}
+	for _, c := range cases {
+		if got := decideModeration(c.action, c.exempt); got != c.want {
+			t.Errorf("%s: decideModeration(%q, %v) = %+v, want %+v", c.name, c.action, c.exempt, got, c.want)
+		}
+	}
+}
+
 const botChannelPerms = discord.PermissionViewChannel | discord.PermissionSendMessages
 
 func TestValidateConfigOK(t *testing.T) {

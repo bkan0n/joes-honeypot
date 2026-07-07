@@ -45,28 +45,44 @@ func (b *Bot) onMessageCreate(e *events.MessageCreate) {
 		}
 	}()
 
-	if cfg.Action == store.ActionDisabled {
-		return
-	}
+	inputs := b.gatherExemptionInputs(guildID, msg)
+	exempt := IsExempt(msg.Author.ID, inputs.OwnerID, inputs.MemberRoles, inputs.AdminRoles)
+	b.moderate(decideModeration(cfg.Action, exempt), cfg, e.ChannelID, msg, inputs.GuildName)
+}
 
-	guildName := "this server"
-	var ownerID snowflake.ID
-	adminRoles := map[snowflake.ID]struct{}{}
+// exemptionInputs carries everything IsExempt needs about a message's author,
+// plus the guild name used in the DM templates — all sourced from the gateway
+// caches and the message itself, no REST calls.
+type exemptionInputs struct {
+	GuildName   string
+	OwnerID     snowflake.ID
+	MemberRoles []snowflake.ID
+	AdminRoles  map[snowflake.ID]struct{}
+}
+
+func (b *Bot) gatherExemptionInputs(guildID snowflake.ID, msg discord.Message) exemptionInputs {
+	in := exemptionInputs{GuildName: "this server", AdminRoles: map[snowflake.ID]struct{}{}}
 	if guild, ok := b.Client.Caches.Guild(guildID); ok {
-		guildName = guild.Name
-		ownerID = guild.OwnerID
+		in.GuildName = guild.Name
+		in.OwnerID = guild.OwnerID
 	}
 	for role := range b.Client.Caches.Roles(guildID) {
 		if !role.Managed && role.Permissions.Has(discord.PermissionAdministrator) {
-			adminRoles[role.ID] = struct{}{}
+			in.AdminRoles[role.ID] = struct{}{}
 		}
 	}
-	var memberRoles []snowflake.ID
 	if msg.Member != nil {
-		memberRoles = msg.Member.RoleIDs
+		in.MemberRoles = msg.Member.RoleIDs
 	}
+	return in
+}
 
-	if IsExempt(msg.Author.ID, ownerID, memberRoles, adminRoles) {
+// moderate executes a moderationPlan against Discord: the DM-before-ban
+// dance, the ban/unban REST calls with their failure alerts, event recording,
+// and the log + warning-message refresh.
+func (b *Bot) moderate(plan moderationPlan, cfg *store.Config, channelID snowflake.ID, msg discord.Message, guildName string) {
+	guildID := cfg.GuildID
+	if plan.NotifyExempt {
 		go func() {
 			if err := b.dmUser(msg.Author.ID, ExemptDMMessage(guildName)); err != nil {
 				b.Log.Debug("exempt dm failed", "user", msg.Author.ID, "err", err)
@@ -75,30 +91,35 @@ func (b *Bot) onMessageCreate(e *events.MessageCreate) {
 		b.sendLog(cfg, discord.MessageCreate{Content: ExemptLogMessage(msg.Author.ID)})
 		return
 	}
+	if !plan.Ban {
+		return
+	}
 
-	// DM before the ban so Discord still delivers it — but never delay the
-	// action more than 2s.
-	dmDone := make(chan struct{})
-	go func() {
-		defer close(dmDone)
-		if err := b.dmUser(msg.Author.ID, DMMessage(cfg.Action, guildName)); err != nil {
-			b.Log.Debug("dm failed", "user", msg.Author.ID, "err", err)
+	if plan.DM {
+		// DM before the ban so Discord still delivers it — but never delay
+		// the action more than 2s.
+		dmDone := make(chan struct{})
+		go func() {
+			defer close(dmDone)
+			if err := b.dmUser(msg.Author.ID, DMMessage(cfg.Action, guildName)); err != nil {
+				b.Log.Debug("dm failed", "user", msg.Author.ID, "err", err)
+			}
+		}()
+		select {
+		case <-dmDone:
+		case <-time.After(2 * time.Second):
 		}
-	}()
-	select {
-	case <-dmDone:
-	case <-time.After(2 * time.Second):
 	}
 
 	reason := rest.WithReason("Joe's Honeypot: posted in the honeypot channel")
 	if err := b.Client.Rest.AddBan(guildID, msg.Author.ID, time.Hour, reason); err != nil {
 		b.Log.Error("ban failed", "guild", guildID, "user", msg.Author.ID, "err", err)
-		b.sendAlert(cfg, e.ChannelID, discord.MessageCreate{Content: fmt.Sprintf(
+		b.sendAlert(cfg, channelID, discord.MessageCreate{Content: fmt.Sprintf(
 			"⚠️ Failed to %s <@%d> — check that I have the **Ban Members** permission and that my role is above theirs.",
 			cfg.Action, msg.Author.ID)})
 		return
 	}
-	if cfg.Action == store.ActionSoftban {
+	if plan.Unban {
 		time.Sleep(250 * time.Millisecond)
 		if err := b.Client.Rest.DeleteBan(guildID, msg.Author.ID, reason); err != nil {
 			// An unknown-ban error means someone beat us to it — fine. Anything
@@ -107,18 +128,18 @@ func (b *Bot) onMessageCreate(e *events.MessageCreate) {
 			isUnknownBan := errors.As(err, &restErr) && restErr.Code == rest.JSONErrorCodeUnknownBan
 			if !isUnknownBan {
 				b.Log.Error("unban after softban failed", "user", msg.Author.ID, "err", err)
-				b.sendAlert(cfg, e.ChannelID, discord.MessageCreate{Content: fmt.Sprintf(
+				b.sendAlert(cfg, channelID, discord.MessageCreate{Content: fmt.Sprintf(
 					"⚠️ <@%d> was banned but the softban's unban failed — they are still banned.", msg.Author.ID)})
 			}
 		}
 	}
 
-	if err := b.Store.RecordEvent(guildID, msg.Author.ID, e.ChannelID); err != nil {
+	if err := b.Store.RecordEvent(guildID, msg.Author.ID, channelID); err != nil {
 		b.Log.Error("recording event", "err", err)
 	}
 
 	logMsg := discord.MessageCreate{Content: LogMessage(msg.Author.ID, cfg.Action)}
-	if cfg.Action == store.ActionBan {
+	if plan.UnbanButton {
 		logMsg.Components = []discord.LayoutComponent{
 			discord.NewActionRow(
 				discord.NewDangerButton("Unban", fmt.Sprintf("unban:%d", msg.Author.ID)),
@@ -126,7 +147,7 @@ func (b *Bot) onMessageCreate(e *events.MessageCreate) {
 		}
 	}
 	b.sendLog(cfg, logMsg)
-	b.ensureWarningMessage(guildID, e.ChannelID)
+	b.ensureWarningMessage(guildID, channelID)
 	b.Log.Info("moderated", "guild", guildID, "user", msg.Author.ID, "action", cfg.Action)
 }
 

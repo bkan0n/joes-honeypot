@@ -39,6 +39,37 @@ func UnbanExpired(messageCreated, now time.Time) bool {
 	return now.Sub(messageCreated) > 24*time.Hour
 }
 
+// moderationPlan is the pure "what should happen" decision for a honeypot
+// trigger, separated from the REST calls that execute it (see Bot.moderate).
+// The zero value means: take no action beyond the honey react.
+type moderationPlan struct {
+	DM           bool // DM the user before acting (bounded wait)
+	Ban          bool // ban the user
+	Unban        bool // softban: lift the ban right after it lands
+	UnbanButton  bool // attach an Unban button to the log message
+	NotifyExempt bool // exempt user: example DM + exempt log, no action
+}
+
+// decideModeration maps the configured action and the author's exemption
+// status to a moderationPlan. Disabled wins over exemption: a disabled
+// honeypot never notifies anyone, exempt or not.
+func decideModeration(action store.Action, exempt bool) moderationPlan {
+	switch action {
+	case store.ActionSoftban, store.ActionBan:
+	default: // disabled or unknown: react only
+		return moderationPlan{}
+	}
+	if exempt {
+		return moderationPlan{NotifyExempt: true}
+	}
+	return moderationPlan{
+		DM:          true,
+		Ban:         true,
+		Unban:       action == store.ActionSoftban,
+		UnbanButton: action == store.ActionBan,
+	}
+}
+
 // validateConfig returns human-readable problems; empty means valid.
 // Nothing is saved unless it returns empty.
 func validateConfig(sub configSubmission, userPerms, botHoneypotPerms, botLogPerms discord.Permissions) []string {

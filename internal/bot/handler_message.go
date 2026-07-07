@@ -93,7 +93,7 @@ func (b *Bot) onMessageCreate(e *events.MessageCreate) {
 	reason := rest.WithReason("Joe's Honeypot: posted in the honeypot channel")
 	if err := b.Client.Rest.AddBan(guildID, msg.Author.ID, time.Hour, reason); err != nil {
 		b.Log.Error("ban failed", "guild", guildID, "user", msg.Author.ID, "err", err)
-		b.sendLog(cfg, discord.MessageCreate{Content: fmt.Sprintf(
+		b.sendAlert(cfg, e.ChannelID, discord.MessageCreate{Content: fmt.Sprintf(
 			"⚠️ Failed to %s <@%d> — check that I have the **Ban Members** permission and that my role is above theirs.",
 			cfg.Action, msg.Author.ID)})
 		return
@@ -107,7 +107,7 @@ func (b *Bot) onMessageCreate(e *events.MessageCreate) {
 			isUnknownBan := errors.As(err, &restErr) && restErr.Code == rest.JSONErrorCodeUnknownBan
 			if !isUnknownBan {
 				b.Log.Error("unban after softban failed", "user", msg.Author.ID, "err", err)
-				b.sendLog(cfg, discord.MessageCreate{Content: fmt.Sprintf(
+				b.sendAlert(cfg, e.ChannelID, discord.MessageCreate{Content: fmt.Sprintf(
 					"⚠️ <@%d> was banned but the softban's unban failed — they are still banned.", msg.Author.ID)})
 			}
 		}
@@ -130,17 +130,18 @@ func (b *Bot) onMessageCreate(e *events.MessageCreate) {
 	b.Log.Info("moderated", "guild", guildID, "user", msg.Author.ID, "action", cfg.Action)
 }
 
-// sendLog posts to the configured log channel; if no log channel is set, the
-// message is dropped (nothing is ever posted to the honeypot channel). The
-// log channel is only unset when the failure is a permanent channel problem
-// (deleted / inaccessible / no permissions); any other error is logged and
-// the log channel is left configured.
-func (b *Bot) sendLog(cfg *store.Config, msg discord.MessageCreate) {
+// sendLog posts a routine log message (who got actioned) to the configured
+// log channel and reports whether it was delivered; if no log channel is set,
+// the message is dropped — routine logs never land in the honeypot channel.
+// The log channel is only unset when the failure is a permanent channel
+// problem (deleted / inaccessible / no permissions); any other error is
+// logged and the log channel is left configured.
+func (b *Bot) sendLog(cfg *store.Config, msg discord.MessageCreate) bool {
 	if cfg.LogChannelID == nil {
-		return
+		return false
 	}
 	if _, err := b.Client.Rest.CreateMessage(*cfg.LogChannelID, msg); err == nil {
-		return
+		return true
 	} else if isPermanentChannelError(err) {
 		b.Log.Warn("log channel unusable, unsetting", "channel", *cfg.LogChannelID, "err", err)
 		if dbErr := b.Store.UnsetLogChannel(cfg.GuildID); dbErr != nil {
@@ -148,6 +149,20 @@ func (b *Bot) sendLog(cfg *store.Config, msg discord.MessageCreate) {
 		}
 	} else {
 		b.Log.Warn("log channel send failed, leaving it configured", "channel", *cfg.LogChannelID, "err", err)
+	}
+	return false
+}
+
+// sendAlert posts an operational warning (failed or incomplete moderation)
+// that must stay visible to moderators: it goes to the log channel when
+// possible, and otherwise falls back to the honeypot channel — unlike
+// routine logs, these are never silently dropped.
+func (b *Bot) sendAlert(cfg *store.Config, fallbackChannelID snowflake.ID, msg discord.MessageCreate) {
+	if b.sendLog(cfg, msg) {
+		return
+	}
+	if _, err := b.Client.Rest.CreateMessage(fallbackChannelID, msg); err != nil {
+		b.Log.Debug("fallback alert failed", "err", err)
 	}
 }
 

@@ -54,15 +54,8 @@ func (b *Bot) onGuildJoin(e *events.GuildJoin) {
 	honeypotID := honeypot.ID()
 	b.ensureEveryoneCanSeeChannel(guildID, honeypot)
 
-	if err := b.Store.UpsertConfig(store.Config{GuildID: guildID, Action: store.ActionSoftban}); err != nil {
-		b.Log.Error("saving default config", "err", err)
-		return
-	}
-	if err := b.Store.SetChannel(guildID, honeypotID); err != nil {
-		b.Log.Error("saving honeypot channel", "err", err)
-		if delErr := b.Store.DeleteGuild(guildID); delErr != nil {
-			b.Log.Error("rolling back config after failed SetChannel", "guild", guildID, "err", delErr)
-		}
+	if err := b.Store.SaveGuildSetup(store.Config{GuildID: guildID, Action: store.ActionSoftban}, honeypotID); err != nil {
+		b.Log.Error("saving default guild setup", "guild", guildID, "channel", honeypotID, "err", err)
 		return
 	}
 	if err := b.ensureWarningMessage(guildID, honeypotID); err != nil {

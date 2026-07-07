@@ -124,14 +124,9 @@ func (b *Bot) onModalSubmit(e *events.ModalSubmitInteractionCreate) {
 	if err != nil {
 		b.Log.Error("loading previous channel", "guild", guildID, "err", err)
 	}
-	if err := b.Store.UpsertConfig(store.Config{GuildID: guildID, LogChannelID: sub.LogChannelID, Action: sub.Action}); err != nil {
-		b.Log.Error("saving config", "guild", guildID, "err", err)
+	if err := b.Store.SaveGuildSetup(store.Config{GuildID: guildID, LogChannelID: sub.LogChannelID, Action: sub.Action}, sub.HoneypotChannelID); err != nil {
+		b.Log.Error("saving guild setup", "guild", guildID, "err", err)
 		b.editDeferredReply(e, "Something went wrong saving the config. No settings have been changed.")
-		return
-	}
-	if err := b.Store.SetChannel(guildID, sub.HoneypotChannelID); err != nil {
-		b.Log.Error("saving channel", "guild", guildID, "err", err)
-		b.editDeferredReply(e, "Something went wrong saving the channel.")
 		return
 	}
 	// Channel changed: delete the old warning message, post one in the new channel.

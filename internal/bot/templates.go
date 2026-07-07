@@ -26,7 +26,9 @@ func WarningMessage() string {
 
 // WarningMessageComponents builds the Components-V2 layout of the persistent
 // warning message: a container holding the warning text with the bot icon as
-// a section thumbnail, and the kick-counter button.
+// a section thumbnail, and the kick-counter button. The button is display
+// only (disabled) — its label already carries the count, and a clickable
+// public button would be free DB load for anyone to spam.
 func WarningMessageComponents(count int64) []discord.LayoutComponent {
 	return []discord.LayoutComponent{
 		discord.NewContainer(
@@ -34,7 +36,7 @@ func WarningMessageComponents(count int64) []discord.LayoutComponent {
 				discord.NewTextDisplay(WarningMessage()),
 			).WithAccessory(discord.NewThumbnail(warningIconURL)),
 			discord.NewActionRow(
-				discord.NewSecondaryButton(CounterButtonLabel(count), counterButtonCID),
+				discord.NewSecondaryButton(CounterButtonLabel(count), counterButtonCID).AsDisabled(),
 			),
 		),
 	}

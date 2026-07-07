@@ -1,5 +1,8 @@
 // Package cache provides a minimal concurrency-safe TTL map. It replaces the
-// Redis caches of the original honeypot bot; entries are evicted lazily on Get.
+// Redis caches of the original honeypot bot; entries are evicted lazily on
+// Get, plus an opportunistic full sweep every sweepInterval stores so that
+// write-once keys that are never read again (and the map buckets holding
+// them) don't accumulate forever in a long-running process.
 package cache
 
 import (
@@ -7,14 +10,20 @@ import (
 	"time"
 )
 
+// sweepInterval is how many stores go by between opportunistic sweeps of
+// expired entries. The sweep is O(len(map)) under the lock, so amortized
+// cost per store stays negligible.
+const sweepInterval = 128
+
 type entry[V any] struct {
 	val       V
 	expiresAt time.Time
 }
 
 type TTL[K comparable, V any] struct {
-	mu sync.Mutex
-	m  map[K]entry[V]
+	mu     sync.Mutex
+	m      map[K]entry[V]
+	stores int // stores since the last sweep
 }
 
 func NewTTL[K comparable, V any]() *TTL[K, V] {
@@ -24,7 +33,23 @@ func NewTTL[K comparable, V any]() *TTL[K, V] {
 func (c *TTL[K, V]) Set(k K, v V, ttl time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.store(k, v, ttl)
+}
+
+// store adds an entry and occasionally sweeps expired ones; c.mu must be held.
+func (c *TTL[K, V]) store(k K, v V, ttl time.Duration) {
 	c.m[k] = entry[V]{val: v, expiresAt: time.Now().Add(ttl)}
+	c.stores++
+	if c.stores < sweepInterval {
+		return
+	}
+	c.stores = 0
+	now := time.Now()
+	for key, e := range c.m {
+		if now.After(e.expiresAt) {
+			delete(c.m, key)
+		}
+	}
 }
 
 func (c *TTL[K, V]) Get(k K) (V, bool) {
@@ -47,7 +72,7 @@ func (c *TTL[K, V]) SetIfAbsent(k K, v V, ttl time.Duration) bool {
 	if e, ok := c.m[k]; ok && !time.Now().After(e.expiresAt) {
 		return false
 	}
-	c.m[k] = entry[V]{val: v, expiresAt: time.Now().Add(ttl)}
+	c.store(k, v, ttl)
 	return true
 }
 

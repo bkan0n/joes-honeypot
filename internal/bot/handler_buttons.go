@@ -33,15 +33,6 @@ func (b *Bot) onComponent(e *events.ComponentInteractionCreate) {
 	guildID := *e.GuildID()
 
 	switch {
-	case data.CustomID() == counterButtonCID:
-		count, err := b.Store.CountEventsByGuild(guildID)
-		if err != nil {
-			b.Log.Error("counting events", "err", err)
-			b.replyEphemeral(e, "Couldn't fetch stats, try again.")
-			return
-		}
-		b.replyEphemeral(e, fmt.Sprintf("🍯 **%d** users have been kicked by the honeypot in this server.", count))
-
 	case data.CustomID() == introDeleteCID:
 		if m := e.Member(); m == nil || !m.Permissions.Has(discord.PermissionManageMessages) {
 			b.replyEphemeral(e, "You need the **Manage Messages** permission to delete this.")

@@ -16,8 +16,7 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # Continuous SQLite replication (H6). Config is passed on the command line
-  # (not a mounted file) because deploys run over a remote Docker context.
+  # CLI-only config: bind mounts don't resolve over the remote Docker deploy context.
   litestream:
     image: litestream/litestream:0.3.13
     container_name: joes-honeypot-litestream

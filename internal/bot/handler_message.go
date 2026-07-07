@@ -31,7 +31,7 @@ func (b *Bot) onMessageCreate(e *events.MessageCreate) {
 		b.handleMentionRefresh(e)
 		return
 	}
-	cfg, err := b.store.GetConfig(guildID)
+	cfg, err := b.store.GetConfig(b.ctx, guildID)
 	if err != nil {
 		b.log.Error("loading config", "guild", guildID, "err", err)
 		return
@@ -48,7 +48,7 @@ func (b *Bot) onMessageCreate(e *events.MessageCreate) {
 
 	// Best-effort honey react.
 	b.safeGo(func() {
-		if err := b.client.Rest.AddReaction(e.ChannelID, msg.ID, "🍯"); err != nil {
+		if err := b.client.Rest.AddReaction(e.ChannelID, msg.ID, "🍯", rest.WithCtx(b.ctx)); err != nil {
 			b.log.Debug("adding reaction", "channel", e.ChannelID, "err", err)
 		}
 	})
@@ -118,7 +118,7 @@ func (b *Bot) moderate(plan moderationPlan, cfg *store.Config, channelID snowfla
 
 	reason := rest.WithReason("Joe's Honeypot: posted in the honeypot channel")
 	if err := b.retryTransient("ban", banRetryAttempts, banRetryBackoff, func() error {
-		return b.client.Rest.AddBan(guildID, msg.Author.ID, time.Hour, reason)
+		return b.client.Rest.AddBan(guildID, msg.Author.ID, time.Hour, reason, rest.WithCtx(b.ctx))
 	}); err != nil {
 		b.log.Error("ban failed", "guild", guildID, "user", msg.Author.ID, "err", err)
 		b.sendAlert(cfg, channelID, discord.MessageCreate{Content: fmt.Sprintf(
@@ -129,7 +129,7 @@ func (b *Bot) moderate(plan moderationPlan, cfg *store.Config, channelID snowfla
 	if plan.Unban {
 		time.Sleep(250 * time.Millisecond)
 		if err := b.retryTransient("unban after softban", banRetryAttempts, banRetryBackoff, func() error {
-			return b.client.Rest.DeleteBan(guildID, msg.Author.ID, reason)
+			return b.client.Rest.DeleteBan(guildID, msg.Author.ID, reason, rest.WithCtx(b.ctx))
 		}); err != nil {
 			// An unknown-ban error means someone beat us to it — fine. Anything
 			// else leaves the user banned instead of softbanned; tell the mods.
@@ -143,7 +143,7 @@ func (b *Bot) moderate(plan moderationPlan, cfg *store.Config, channelID snowfla
 		}
 	}
 
-	if err := b.store.RecordEvent(guildID, msg.Author.ID, channelID); err != nil {
+	if err := b.store.RecordEvent(b.ctx, guildID, msg.Author.ID, channelID); err != nil {
 		b.log.Error("recording event", "guild", guildID, "user", msg.Author.ID, "err", err)
 	}
 
@@ -172,11 +172,11 @@ func (b *Bot) sendLog(cfg *store.Config, msg discord.MessageCreate) bool {
 	if cfg.LogChannelID == nil {
 		return false
 	}
-	if _, err := b.client.Rest.CreateMessage(*cfg.LogChannelID, msg); err == nil {
+	if _, err := b.client.Rest.CreateMessage(*cfg.LogChannelID, msg, rest.WithCtx(b.ctx)); err == nil {
 		return true
 	} else if isPermanentChannelError(err) {
 		b.log.Warn("log channel unusable, unsetting", "channel", *cfg.LogChannelID, "err", err)
-		if dbErr := b.store.UnsetLogChannel(cfg.GuildID); dbErr != nil {
+		if dbErr := b.store.UnsetLogChannel(b.ctx, cfg.GuildID); dbErr != nil {
 			b.log.Error("unsetting log channel", "err", dbErr)
 		}
 	} else {
@@ -193,7 +193,7 @@ func (b *Bot) sendAlert(cfg *store.Config, fallbackChannelID snowflake.ID, msg d
 	if b.sendLog(cfg, msg) {
 		return
 	}
-	if _, err := b.client.Rest.CreateMessage(fallbackChannelID, msg); err != nil {
+	if _, err := b.client.Rest.CreateMessage(fallbackChannelID, msg, rest.WithCtx(b.ctx)); err != nil {
 		b.log.Error("alert dropped: fallback channel send failed", "guild", cfg.GuildID, "channel", fallbackChannelID, "err", err)
 	}
 }
@@ -212,13 +212,13 @@ func isPermanentChannelError(err error) bool {
 func (b *Bot) dmUser(userID snowflake.ID, content string) error {
 	chID, ok := b.dms.Get(userID)
 	if !ok {
-		ch, err := b.client.Rest.CreateDMChannel(userID)
+		ch, err := b.client.Rest.CreateDMChannel(userID, rest.WithCtx(b.ctx))
 		if err != nil {
 			return err
 		}
 		chID = ch.ID()
 		b.dms.Set(userID, chID, 24*time.Hour)
 	}
-	_, err := b.client.Rest.CreateMessage(chID, discord.MessageCreate{Content: content})
+	_, err := b.client.Rest.CreateMessage(chID, discord.MessageCreate{Content: content}, rest.WithCtx(b.ctx))
 	return err
 }

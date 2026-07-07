@@ -11,6 +11,7 @@ import (
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/gateway"
 	"github.com/disgoorg/disgo/handler"
+	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/bkan0n/joeshoneypot/internal/cache"
@@ -31,15 +32,23 @@ type Bot struct {
 
 	selfMembers *cache.TTL[snowflake.ID, discord.Member] // bot's own member per guild, for permission checks
 	ownerID     snowflake.ID                             // bot application owner, allowed to use "@bot refresh"
+
+	// ctx spans the bot's lifetime; Close cancels it, aborting in-flight
+	// REST and DB work in handler goroutines so shutdown stays bounded.
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 func New(token string, st *store.Store, log *slog.Logger) (*Bot, error) {
+	ctx, cancel := context.WithCancel(context.Background())
 	b := &Bot{
 		store:       st,
 		log:         log,
 		dedup:       cache.NewTTL[dedupKey, struct{}](),
 		dms:         cache.NewTTL[snowflake.ID, snowflake.ID](),
 		selfMembers: cache.NewTTL[snowflake.ID, discord.Member](),
+		ctx:         ctx,
+		cancel:      cancel,
 	}
 	// Event listeners are appended here by the handler files (handler_*.go,
 	// setup.go, housekeeping.go) as they are implemented.
@@ -69,6 +78,7 @@ func New(token string, st *store.Store, log *slog.Logger) (*Bot, error) {
 	}, listeners...)
 	client, err := disgo.New(token, opts...)
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 	b.client = client
@@ -76,7 +86,7 @@ func New(token string, st *store.Store, log *slog.Logger) (*Bot, error) {
 }
 
 func (b *Bot) Start(ctx context.Context) error {
-	if app, err := b.client.Rest.GetBotApplicationInfo(); err != nil {
+	if app, err := b.client.Rest.GetBotApplicationInfo(rest.WithCtx(ctx)); err != nil {
 		b.log.Warn("fetching application owner; @refresh command disabled", "err", err)
 	} else if app.Owner != nil {
 		b.ownerID = app.Owner.ID
@@ -88,5 +98,6 @@ func (b *Bot) Start(ctx context.Context) error {
 }
 
 func (b *Bot) Close(ctx context.Context) {
+	b.cancel() // abort in-flight handler work before closing the client
 	b.client.Close(ctx)
 }

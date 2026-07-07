@@ -6,6 +6,7 @@ import (
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
+	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/bkan0n/joeshoneypot/internal/store"
@@ -17,7 +18,7 @@ import (
 // intro message explaining the setup.
 func (b *Bot) onGuildJoin(e *events.GuildJoin) {
 	guildID := e.Guild.ID
-	cfg, err := b.store.GetConfig(guildID)
+	cfg, err := b.store.GetConfig(b.ctx, guildID)
 	if err != nil {
 		b.log.Error("checking existing config", "guild", guildID, "err", err)
 		return
@@ -26,7 +27,7 @@ func (b *Bot) onGuildJoin(e *events.GuildJoin) {
 		return // rejoined a guild we already know
 	}
 
-	channels, err := b.client.Rest.GetGuildChannels(guildID)
+	channels, err := b.client.Rest.GetGuildChannels(guildID, rest.WithCtx(b.ctx))
 	if err != nil {
 		b.log.Error("listing channels", "guild", guildID, "err", err)
 		return
@@ -44,7 +45,7 @@ func (b *Bot) onGuildJoin(e *events.GuildJoin) {
 		created, err := b.client.Rest.CreateGuildChannel(guildID, discord.GuildTextChannelCreate{
 			Name:     name,
 			Position: len(channels) + 1,
-		})
+		}, rest.WithCtx(b.ctx))
 		if err != nil {
 			b.log.Error("creating honeypot channel", "guild", guildID, "err", err)
 			return
@@ -54,7 +55,7 @@ func (b *Bot) onGuildJoin(e *events.GuildJoin) {
 	honeypotID := honeypot.ID()
 	b.ensureEveryoneCanSeeChannel(guildID, honeypot)
 
-	if err := b.store.SaveGuildSetup(store.Config{GuildID: guildID, Action: store.ActionSoftban}, honeypotID); err != nil {
+	if err := b.store.SaveGuildSetup(b.ctx, store.Config{GuildID: guildID, Action: store.ActionSoftban}, honeypotID); err != nil {
 		b.log.Error("saving default guild setup", "guild", guildID, "channel", honeypotID, "err", err)
 		return
 	}
@@ -68,14 +69,21 @@ func (b *Bot) onGuildJoin(e *events.GuildJoin) {
 		Components: []discord.LayoutComponent{
 			discord.NewActionRow(discord.NewSecondaryButton("Delete message now", introDeleteCID)),
 		},
-	})
+	}, rest.WithCtx(b.ctx))
 	if err != nil {
 		b.log.Warn("posting intro message", "err", err)
 		return
 	}
 	introChannelID, introID := intro.ChannelID, intro.ID
-	time.AfterFunc(150*time.Second, func() {
-		if err := b.client.Rest.DeleteMessage(introChannelID, introID); err != nil {
+	// Not time.AfterFunc: the delayed delete must die with the bot instead of
+	// firing against a closed client up to 150s after shutdown.
+	b.safeGo(func() {
+		select {
+		case <-b.ctx.Done():
+			return
+		case <-time.After(150 * time.Second):
+		}
+		if err := b.client.Rest.DeleteMessage(introChannelID, introID, rest.WithCtx(b.ctx)); err != nil {
 			b.log.Debug("intro already deleted", "err", err)
 		}
 	})
@@ -121,7 +129,7 @@ func (b *Bot) ensureEveryoneCanSeeChannel(guildID snowflake.ID, ch discord.Guild
 	if err := b.client.Rest.UpdatePermissionOverwrite(ch.ID(), guildID, discord.RolePermissionOverwriteUpdate{
 		Allow: &allow,
 		Deny:  &deny,
-	}); err != nil {
+	}, rest.WithCtx(b.ctx)); err != nil {
 		b.log.Warn("granting @everyone view/send on honeypot channel", "guild", guildID, "channel", ch.ID(), "err", err)
 	}
 }

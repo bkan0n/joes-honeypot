@@ -6,6 +6,7 @@ import (
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
+	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/bkan0n/joeshoneypot/internal/store"
@@ -54,13 +55,13 @@ func (b *Bot) onCommand(e *events.ApplicationCommandInteractionCreate) {
 	if e.Data.CommandName() != "honeypot" || e.GuildID() == nil {
 		return
 	}
-	cfg, err := b.store.GetConfig(*e.GuildID())
+	cfg, err := b.store.GetConfig(b.ctx, *e.GuildID())
 	if err != nil {
 		b.log.Error("loading config for modal", "guild", *e.GuildID(), "err", err)
 		b.replyEphemeral(e, "Something went wrong loading the config.")
 		return
 	}
-	if err := e.Modal(configModal(cfg)); err != nil {
+	if err := e.Modal(configModal(cfg), rest.WithCtx(b.ctx)); err != nil {
 		b.log.Error("sending config modal", "err", err)
 	}
 }
@@ -82,7 +83,7 @@ func (b *Bot) onModalSubmit(e *events.ModalSubmitInteractionCreate) {
 	// interaction deadline. After deferring, a normal interaction response is
 	// no longer allowed — every exit path below must edit the deferred reply
 	// (editDeferredReply), never b.replyEphemeral.
-	if err := e.DeferCreateMessage(true); err != nil {
+	if err := e.DeferCreateMessage(true, rest.WithCtx(b.ctx)); err != nil {
 		b.log.Error("deferring modal response", "guild", guildID, "err", err)
 		return
 	}
@@ -124,14 +125,14 @@ func (b *Bot) onModalSubmit(e *events.ModalSubmitInteractionCreate) {
 	if err != nil {
 		b.log.Error("loading previous channel", "guild", guildID, "err", err)
 	}
-	if err := b.store.SaveGuildSetup(store.Config{GuildID: guildID, LogChannelID: sub.LogChannelID, Action: sub.Action}, sub.HoneypotChannelID); err != nil {
+	if err := b.store.SaveGuildSetup(b.ctx, store.Config{GuildID: guildID, LogChannelID: sub.LogChannelID, Action: sub.Action}, sub.HoneypotChannelID); err != nil {
 		b.log.Error("saving guild setup", "guild", guildID, "err", err)
 		b.editDeferredReply(e, "Something went wrong saving the config. No settings have been changed.")
 		return
 	}
 	// Channel changed: delete the old warning message, post one in the new channel.
 	if prev != nil && prev.ChannelID != sub.HoneypotChannelID && prev.MsgID != nil {
-		if err := b.client.Rest.DeleteMessage(prev.ChannelID, *prev.MsgID); err != nil {
+		if err := b.client.Rest.DeleteMessage(prev.ChannelID, *prev.MsgID, rest.WithCtx(b.ctx)); err != nil {
 			b.log.Warn("deleting old warning message", "err", err)
 		}
 	}

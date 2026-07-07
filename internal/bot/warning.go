@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 )
 
@@ -25,7 +26,7 @@ func (b *Bot) ensureWarningMessage(guildID, channelID snowflake.ID) error {
 	if ch == nil {
 		return fmt.Errorf("channel %d is not a registered honeypot channel", channelID)
 	}
-	count, err := b.store.CountEventsByGuild(guildID)
+	count, err := b.store.CountEventsByGuild(b.ctx, guildID)
 	if err != nil {
 		return fmt.Errorf("counting events: %w", err)
 	}
@@ -41,17 +42,17 @@ func (b *Bot) ensureWarningMessage(guildID, channelID snowflake.ID) error {
 	// whether the bot already left one behind (e.g. a rejoin, or a restart
 	// racing a stale DB write). If so, adopt the oldest and clean up
 	// duplicates instead of spamming another one.
-	if recent, err := b.client.Rest.GetMessages(channelID, 0, 0, 0, 50); err != nil {
+	if recent, err := b.client.Rest.GetMessages(channelID, 0, 0, 0, 50, rest.WithCtx(b.ctx)); err != nil {
 		b.log.Warn("listing messages for warning-message dedup", "channel", channelID, "err", err)
 	} else if adopt, extras := selectWarningMessage(recent, b.client.ID()); adopt != nil {
 		if err := b.updateWarningMessage(channelID, adopt.ID, components); err != nil {
 			b.log.Warn("updating adopted warning message", "channel", channelID, "msg", adopt.ID, "err", err)
 		}
-		if err := b.store.SetWarningMsg(channelID, &adopt.ID); err != nil {
+		if err := b.store.SetWarningMsg(b.ctx, channelID, &adopt.ID); err != nil {
 			return fmt.Errorf("storing adopted warning msg id: %w", err)
 		}
 		for _, extra := range extras {
-			if err := b.client.Rest.DeleteMessage(channelID, extra.ID); err != nil {
+			if err := b.client.Rest.DeleteMessage(channelID, extra.ID, rest.WithCtx(b.ctx)); err != nil {
 				b.log.Warn("deleting duplicate warning message", "channel", channelID, "msg", extra.ID, "err", err)
 			}
 		}
@@ -61,11 +62,11 @@ func (b *Bot) ensureWarningMessage(guildID, channelID snowflake.ID) error {
 	msg, err := b.client.Rest.CreateMessage(channelID, discord.MessageCreate{
 		Flags:      discord.MessageFlagIsComponentsV2,
 		Components: components,
-	})
+	}, rest.WithCtx(b.ctx))
 	if err != nil {
 		return fmt.Errorf("posting warning message: %w", err)
 	}
-	if err := b.store.SetWarningMsg(channelID, &msg.ID); err != nil {
+	if err := b.store.SetWarningMsg(b.ctx, channelID, &msg.ID); err != nil {
 		return fmt.Errorf("storing warning msg id: %w", err)
 	}
 	return nil
@@ -78,7 +79,7 @@ func (b *Bot) ensureWarningMessage(guildID, channelID snowflake.ID) error {
 func (b *Bot) updateWarningMessage(channelID, msgID snowflake.ID, components []discord.LayoutComponent) error {
 	if _, err := b.client.Rest.UpdateMessage(channelID, msgID, discord.MessageUpdate{
 		Components: &components,
-	}); err == nil {
+	}, rest.WithCtx(b.ctx)); err == nil {
 		return nil
 	}
 	empty := ""
@@ -87,7 +88,7 @@ func (b *Bot) updateWarningMessage(channelID, msgID snowflake.ID, components []d
 		Content:    &empty,
 		Flags:      &flags,
 		Components: &components,
-	})
+	}, rest.WithCtx(b.ctx))
 	return err
 }
 

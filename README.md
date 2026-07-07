@@ -37,8 +37,18 @@ Required GitHub configuration:
 
 | Where | Name |
 |---|---|
-| Environment `production` | `BOT_TOKEN` |
+| Environment `production` | `BOT_TOKEN`, `LITESTREAM_REPLICA_URL`, `LITESTREAM_ACCESS_KEY_ID`, `LITESTREAM_SECRET_ACCESS_KEY` |
 | Environment `development` | `BOT_TOKEN` (dev bot application) |
 | Repo secrets | `SERVER_HOST_SSH_PRIVATE_KEY`, `SERVER_HOST_IP`, `SERVER_HOST_USER` |
 
 SQLite lives in the named volumes `joes_honeypot_{prod,dev}_data`.
+
+## Backups
+
+A [Litestream](https://litestream.io) sidecar in `docker-compose.prod.yml`
+continuously replicates the prod database to S3-compatible storage (e.g.
+Cloudflare R2). `LITESTREAM_REPLICA_URL` is the bucket URL
+(`s3://<bucket>.<account>.r2.cloudflarestorage.com/honeypot.db`); the two
+key secrets are an access token scoped to that bucket. To recover after
+volume loss, run `litestream restore -o /data/honeypot.db <replica-url>`
+into a fresh volume before starting the bot.

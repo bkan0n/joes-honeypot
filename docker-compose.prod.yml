@@ -11,5 +11,22 @@ services:
       - joes_honeypot_prod_data:/data
     restart: unless-stopped
 
+  # Continuous SQLite replication (H6). Config is passed on the command line
+  # (not a mounted file) because deploys run over a remote Docker context.
+  # LITESTREAM_REPLICA_URL: s3-compatible bucket URL, e.g.
+  # s3://<bucket>.<account>.r2.cloudflarestorage.com/honeypot.db
+  # Restore after volume loss:
+  #   litestream restore -o /data/honeypot.db "$LITESTREAM_REPLICA_URL"
+  litestream:
+    image: litestream/litestream:0.3.13
+    container_name: joes-honeypot-litestream
+    command: replicate /data/honeypot.db ${LITESTREAM_REPLICA_URL:?}
+    environment:
+      LITESTREAM_ACCESS_KEY_ID: ${LITESTREAM_ACCESS_KEY_ID:?}
+      LITESTREAM_SECRET_ACCESS_KEY: ${LITESTREAM_SECRET_ACCESS_KEY:?}
+    volumes:
+      - joes_honeypot_prod_data:/data
+    restart: unless-stopped
+
 volumes:
   joes_honeypot_prod_data:

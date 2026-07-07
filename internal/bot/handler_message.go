@@ -117,7 +117,9 @@ func (b *Bot) moderate(plan moderationPlan, cfg *store.Config, channelID snowfla
 	}
 
 	reason := rest.WithReason("Joe's Honeypot: posted in the honeypot channel")
-	if err := b.Client.Rest.AddBan(guildID, msg.Author.ID, time.Hour, reason); err != nil {
+	if err := b.retryTransient("ban", banRetryAttempts, banRetryBackoff, func() error {
+		return b.Client.Rest.AddBan(guildID, msg.Author.ID, time.Hour, reason)
+	}); err != nil {
 		b.Log.Error("ban failed", "guild", guildID, "user", msg.Author.ID, "err", err)
 		b.sendAlert(cfg, channelID, discord.MessageCreate{Content: fmt.Sprintf(
 			"⚠️ Failed to %s <@%d> — check that I have the **Ban Members** permission and that my role is above theirs.",
@@ -126,7 +128,9 @@ func (b *Bot) moderate(plan moderationPlan, cfg *store.Config, channelID snowfla
 	}
 	if plan.Unban {
 		time.Sleep(250 * time.Millisecond)
-		if err := b.Client.Rest.DeleteBan(guildID, msg.Author.ID, reason); err != nil {
+		if err := b.retryTransient("unban after softban", banRetryAttempts, banRetryBackoff, func() error {
+			return b.Client.Rest.DeleteBan(guildID, msg.Author.ID, reason)
+		}); err != nil {
 			// An unknown-ban error means someone beat us to it — fine. Anything
 			// else leaves the user banned instead of softbanned; tell the mods.
 			var restErr *rest.Error

@@ -5,6 +5,8 @@ import (
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
+
+	"github.com/bkan0n/joeshoneypot/internal/store"
 )
 
 // IsTriggerMessage reports whether a message in a honeypot channel should
@@ -35,4 +37,27 @@ func IsExempt(authorID, ownerID snowflake.ID, memberRoleIDs []snowflake.ID, admi
 // UnbanExpired reports whether an unban button is too old to honor (24h).
 func UnbanExpired(messageCreated, now time.Time) bool {
 	return now.Sub(messageCreated) > 24*time.Hour
+}
+
+// validateConfig returns human-readable problems; empty means valid.
+// Nothing is saved unless it returns empty.
+func validateConfig(sub configSubmission, userPerms, botHoneypotPerms, botLogPerms discord.Permissions) []string {
+	var problems []string
+	if !botHoneypotPerms.Has(discord.PermissionViewChannel) || !botHoneypotPerms.Has(discord.PermissionSendMessages) {
+		problems = append(problems, "I need **View Channel** and **Send Messages** in the honeypot channel.")
+	}
+	if sub.Action == store.ActionSoftban || sub.Action == store.ActionBan {
+		if !botHoneypotPerms.Has(discord.PermissionBanMembers) {
+			problems = append(problems, "I need the **Ban Members** permission for the softban/ban action.")
+		}
+		if !userPerms.Has(discord.PermissionBanMembers) {
+			problems = append(problems, "You need the **Ban Members** permission to set the softban/ban action.")
+		}
+	}
+	if sub.LogChannelID != nil {
+		if !botLogPerms.Has(discord.PermissionViewChannel) || !botLogPerms.Has(discord.PermissionSendMessages) {
+			problems = append(problems, "I need **View Channel** and **Send Messages** in the log channel.")
+		}
+	}
+	return problems
 }

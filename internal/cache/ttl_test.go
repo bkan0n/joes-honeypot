@@ -140,3 +140,50 @@ func TestSetIfAbsent(t *testing.T) {
 		}
 	})
 }
+
+func TestUpdate(t *testing.T) {
+	t.Run("absent key gets zero value", func(t *testing.T) {
+		c := NewTTL[string, int]()
+		c.Update("a", time.Minute, func(cur int) int {
+			if cur != 0 {
+				t.Errorf("fn got %d, want zero value 0", cur)
+			}
+			return cur + 1
+		})
+		if v, ok := c.Get("a"); !ok || v != 1 {
+			t.Fatalf("got %v %v, want 1 true", v, ok)
+		}
+	})
+	t.Run("live key gets current value", func(t *testing.T) {
+		c := NewTTL[string, int]()
+		c.Set("a", 5, time.Minute)
+		c.Update("a", time.Minute, func(cur int) int { return cur + 1 })
+		if v, _ := c.Get("a"); v != 6 {
+			t.Fatalf("got %v, want 6", v)
+		}
+	})
+	t.Run("expired key treated as absent", func(t *testing.T) {
+		c := NewTTL[string, int]()
+		c.Set("a", 5, time.Nanosecond)
+		time.Sleep(time.Millisecond)
+		c.Update("a", time.Minute, func(cur int) int {
+			if cur != 0 {
+				t.Errorf("fn got %d, want zero value 0", cur)
+			}
+			return 9
+		})
+		if v, _ := c.Get("a"); v != 9 {
+			t.Fatalf("got %v, want 9", v)
+		}
+	})
+	t.Run("update refreshes ttl", func(t *testing.T) {
+		c := NewTTL[string, int]()
+		c.Set("a", 1, 20*time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
+		c.Update("a", time.Minute, func(cur int) int { return cur })
+		time.Sleep(15 * time.Millisecond) // past the original expiry
+		if _, ok := c.Get("a"); !ok {
+			t.Fatal("entry expired despite Update refreshing the ttl")
+		}
+	})
+}

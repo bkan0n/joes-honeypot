@@ -78,6 +78,19 @@ func (c *TTL[K, V]) SetIfAbsent(k K, v V, ttl time.Duration) bool {
 	return true
 }
 
+// Update applies fn to the current value for k — or the zero value of V if
+// k is absent or expired — and stores the result with a fresh ttl. fn runs
+// under the cache lock: keep it short and never call back into the cache.
+func (c *TTL[K, V]) Update(k K, ttl time.Duration, fn func(V) V) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var cur V
+	if e, ok := c.m[k]; ok && !time.Now().After(e.expiresAt) {
+		cur = e.val
+	}
+	c.store(k, fn(cur), ttl)
+}
+
 func (c *TTL[K, V]) Delete(k K) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

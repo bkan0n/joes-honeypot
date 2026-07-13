@@ -29,6 +29,7 @@ func (b *Bot) onMessageCreate(e *events.MessageCreate) {
 	}
 	if hpChannel == nil || hpChannel.GuildID != guildID {
 		b.handleMentionRefresh(e)
+		b.checkSpam(e, guildID)
 		return
 	}
 	cfg, err := b.store.GetConfig(b.ctx, guildID)

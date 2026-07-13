@@ -33,6 +33,12 @@ type Bot struct {
 	dedup  *cache.TTL[dedupKey, struct{}]
 	dms    *cache.TTL[snowflake.ID, snowflake.ID]
 
+	// spamSightings backs the cross-channel image-spam detector: which
+	// channels each (guild, user, attachment-fingerprint) has appeared in
+	// within the sliding spamWindow. Process-local; a restart forgets at
+	// most 30 minutes of counting, which spam blasts (seconds apart) survive.
+	spamSightings *cache.TTL[spamKey, map[snowflake.ID]struct{}]
+
 	selfMembers *cache.TTL[snowflake.ID, discord.Member] // bot's own member per guild, for permission checks
 	ownerID     snowflake.ID                             // bot application owner, allowed to use "@bot refresh"
 
@@ -45,13 +51,14 @@ type Bot struct {
 func New(token string, st *store.Store, log *slog.Logger) (*Bot, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	b := &Bot{
-		store:       st,
-		log:         log,
-		dedup:       cache.NewTTL[dedupKey, struct{}](),
-		dms:         cache.NewTTL[snowflake.ID, snowflake.ID](),
-		selfMembers: cache.NewTTL[snowflake.ID, discord.Member](),
-		ctx:         ctx,
-		cancel:      cancel,
+		store:         st,
+		log:           log,
+		dedup:         cache.NewTTL[dedupKey, struct{}](),
+		dms:           cache.NewTTL[snowflake.ID, snowflake.ID](),
+		spamSightings: cache.NewTTL[spamKey, map[snowflake.ID]struct{}](),
+		selfMembers:   cache.NewTTL[snowflake.ID, discord.Member](),
+		ctx:           ctx,
+		cancel:        cancel,
 	}
 	listeners := []dbot.ConfigOpt{
 		dbot.WithEventListenerFunc(b.onCommand),

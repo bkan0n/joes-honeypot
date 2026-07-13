@@ -18,6 +18,36 @@ func actionVerb(action store.Action) string {
 	return "kicked"
 }
 
+// triggerKind identifies which detector caught a user — the honeypot
+// channel or the cross-channel image-spam detector — selecting the wording
+// of DMs, log messages, and the audit-log ban reason.
+type triggerKind int
+
+const (
+	triggerHoneypot triggerKind = iota
+	triggerSpam
+)
+
+// description completes sentences like "you have been banned for …".
+func (k triggerKind) description() string {
+	if k == triggerSpam {
+		return "posting the same images in multiple channels"
+	}
+	return "sending a message in the honeypot channel"
+}
+
+func (k triggerKind) title() string {
+	if k == triggerSpam {
+		return "## 🍯 Spam Detected"
+	}
+	return "## 🍯 Honeypot Triggered"
+}
+
+// banReason is the Discord audit-log reason attached to the ban REST call.
+func (k triggerKind) banReason() string {
+	return "Joe's Honeypot: " + k.description()
+}
+
 func warningMessage() string {
 	return "## ⚠️ DO NOT SEND MESSAGES IN THIS CHANNEL\n" +
 		"Anyone who posts here is **automatically banned**. No exceptions, no warnings.\n" +
@@ -44,11 +74,10 @@ func warningMessageComponents(count int64) []discord.LayoutComponent {
 
 const dmFooter = "-# This is an automated message from Joe's Honeypot."
 
-func dmMessage(action store.Action, guildName string) string {
+func dmMessage(action store.Action, guildName string, kind triggerKind) string {
 	return fmt.Sprintf(
-		"## 🍯 Honeypot Triggered\nYou have been **%s** from **%s** for sending a message in the honeypot channel.\n"+
-			dmFooter,
-		actionVerb(action), guildName)
+		"%s\nYou have been **%s** from **%s** for %s.\n"+dmFooter,
+		kind.title(), actionVerb(action), guildName, kind.description())
 }
 
 func exemptDMMessage(guildName string) string {
@@ -60,8 +89,8 @@ func exemptDMMessage(guildName string) string {
 		guildName)
 }
 
-func logMessage(userID snowflake.ID, action store.Action) string {
-	return fmt.Sprintf("<@%d> was %s for sending a message in the honeypot channel.", userID, actionVerb(action))
+func logMessage(userID snowflake.ID, action store.Action, kind triggerKind) string {
+	return fmt.Sprintf("<@%d> was %s for %s.", userID, actionVerb(action), kind.description())
 }
 
 func exemptLogMessage(userID snowflake.ID) string {

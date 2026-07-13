@@ -125,7 +125,7 @@ func (b *Bot) onModalSubmit(e *events.ModalSubmitInteractionCreate) {
 	if err != nil {
 		b.log.Error("loading previous channel", "guild", guildID, "err", err)
 	}
-	if err := b.store.SaveGuildSetup(b.ctx, store.Config{GuildID: guildID, LogChannelID: sub.LogChannelID, Action: sub.Action}, sub.HoneypotChannelID); err != nil {
+	if err := b.store.SaveGuildSetup(b.ctx, store.Config{GuildID: guildID, LogChannelID: sub.LogChannelID, Action: sub.Action, SpamDetection: true}, sub.HoneypotChannelID); err != nil {
 		b.log.Error("saving guild setup", "guild", guildID, "err", err)
 		b.editDeferredReply(e, "Something went wrong saving the config. No settings have been changed.")
 		return

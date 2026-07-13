@@ -143,7 +143,7 @@ func (b *Bot) moderate(plan moderationPlan, cfg *store.Config, channelID snowfla
 		}
 	}
 
-	if err := b.store.RecordEvent(b.ctx, guildID, msg.Author.ID, channelID); err != nil {
+	if err := b.store.RecordEvent(b.ctx, guildID, msg.Author.ID, &channelID); err != nil {
 		b.log.Error("recording event", "guild", guildID, "user", msg.Author.ID, "err", err)
 	}
 

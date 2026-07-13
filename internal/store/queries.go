@@ -20,9 +20,10 @@ const (
 
 // Config is a guild's honeypot settings; one row per guild.
 type Config struct {
-	GuildID      snowflake.ID
-	LogChannelID *snowflake.ID
-	Action       Action
+	GuildID       snowflake.ID
+	LogChannelID  *snowflake.ID
+	Action        Action
+	SpamDetection bool // cross-channel duplicate-image detector on/off
 }
 
 // Channel is a guild's registered honeypot channel and, when posted, the ID
@@ -52,23 +53,24 @@ func (s *Store) GetConfig(ctx context.Context, guildID snowflake.ID) (*Config, e
 	var (
 		logCh  sql.NullInt64
 		action string
+		spam   bool
 	)
 	err := s.db.QueryRowContext(ctx,
-		`SELECT log_channel_id, action FROM honeypot_config WHERE guild_id = ?`, int64(guildID),
-	).Scan(&logCh, &action)
+		`SELECT log_channel_id, action, spam_detection FROM honeypot_config WHERE guild_id = ?`, int64(guildID),
+	).Scan(&logCh, &action, &spam)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	return &Config{GuildID: guildID, LogChannelID: idPtr(logCh), Action: Action(action)}, nil
+	return &Config{GuildID: guildID, LogChannelID: idPtr(logCh), Action: Action(action), SpamDetection: spam}, nil
 }
 
 func (s *Store) UpsertConfig(ctx context.Context, cfg Config) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO honeypot_config (guild_id, log_channel_id, action) VALUES (?, ?, ?)
-		ON CONFLICT(guild_id) DO UPDATE SET log_channel_id = excluded.log_channel_id, action = excluded.action`,
-		int64(cfg.GuildID), nullID(cfg.LogChannelID), string(cfg.Action))
+	_, err := s.db.ExecContext(ctx, `INSERT INTO honeypot_config (guild_id, log_channel_id, action, spam_detection) VALUES (?, ?, ?, ?)
+		ON CONFLICT(guild_id) DO UPDATE SET log_channel_id = excluded.log_channel_id, action = excluded.action, spam_detection = excluded.spam_detection`,
+		int64(cfg.GuildID), nullID(cfg.LogChannelID), string(cfg.Action), cfg.SpamDetection)
 	return err
 }
 
@@ -194,9 +196,9 @@ func (s *Store) SaveGuildSetup(ctx context.Context, cfg Config, channelID snowfl
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO honeypot_config (guild_id, log_channel_id, action) VALUES (?, ?, ?)
-		ON CONFLICT(guild_id) DO UPDATE SET log_channel_id = excluded.log_channel_id, action = excluded.action`,
-		int64(cfg.GuildID), nullID(cfg.LogChannelID), string(cfg.Action))
+	_, err = tx.ExecContext(ctx, `INSERT INTO honeypot_config (guild_id, log_channel_id, action, spam_detection) VALUES (?, ?, ?, ?)
+		ON CONFLICT(guild_id) DO UPDATE SET log_channel_id = excluded.log_channel_id, action = excluded.action, spam_detection = excluded.spam_detection`,
+		int64(cfg.GuildID), nullID(cfg.LogChannelID), string(cfg.Action), cfg.SpamDetection)
 	if err != nil {
 		_ = tx.Rollback()
 		return err
@@ -294,9 +296,9 @@ func (s *Store) DeleteGuild(ctx context.Context, guildID snowflake.ID) error {
 	return nil
 }
 
-func (s *Store) RecordEvent(ctx context.Context, guildID, userID, channelID snowflake.ID) error {
+func (s *Store) RecordEvent(ctx context.Context, guildID, userID snowflake.ID, channelID *snowflake.ID) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO honeypot_events (guild_id, user_id, channel_id) VALUES (?, ?, ?)`,
-		int64(guildID), int64(userID), int64(channelID))
+		int64(guildID), int64(userID), nullID(channelID))
 	return err
 }
 

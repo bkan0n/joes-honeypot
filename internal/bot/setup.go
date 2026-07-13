@@ -55,7 +55,7 @@ func (b *Bot) onGuildJoin(e *events.GuildJoin) {
 	honeypotID := honeypot.ID()
 	b.ensureEveryoneCanSeeChannel(guildID, honeypot)
 
-	if err := b.store.SaveGuildSetup(b.ctx, store.Config{GuildID: guildID, Action: store.ActionSoftban}, honeypotID); err != nil {
+	if err := b.store.SaveGuildSetup(b.ctx, store.Config{GuildID: guildID, Action: store.ActionSoftban, SpamDetection: true}, honeypotID); err != nil {
 		b.log.Error("saving default guild setup", "guild", guildID, "channel", honeypotID, "err", err)
 		return
 	}

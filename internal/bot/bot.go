@@ -76,7 +76,7 @@ func New(token string, st *store.Store, log *slog.Logger) (*Bot, error) {
 		// and rate-limit hits would bypass the LOG_LEVEL-controlled logger.
 		dbot.WithLogger(log),
 		dbot.WithGatewayConfigOpts(
-			gateway.WithIntents(gateway.IntentGuilds|gateway.IntentGuildMessages),
+			gateway.WithIntents(gateway.IntentGuilds|gateway.IntentGuildMessages|gateway.IntentMessageContent),
 			gateway.WithPresenceOpts(gateway.WithWatchingActivity("#honeypot for bots")),
 		),
 		dbot.WithCacheConfigOpts(

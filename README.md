@@ -15,8 +15,14 @@ channels and real users read the warning). Modeled after
   bans). Server owner and administrators are exempt.
 - `/honeypot` opens the config modal: honeypot channel, optional log channel,
   action (softban / ban / disabled).
+- Cross-channel image spam: a user posting a message with 2+ attachments
+  whose attachment set (filenames + sizes) repeats in a second channel
+  within 30 minutes gets the same softban/ban treatment. Detection state is
+  a small in-memory cache; nothing is downloaded. Toggle it in `/honeypot`.
 
-Intents: Guilds + GuildMessages only. Message content is never read.
+Intents: Guilds + GuildMessages + MessageContent. The MessageContent intent
+is needed only to see attachment metadata (filename + size) for spam
+fingerprinting; message text is never read, stored, or logged.
 
 ## Local development
 
@@ -25,6 +31,11 @@ Intents: Guilds + GuildMessages only. Message content is never read.
     go test ./...
 
 ## Deployment
+
+**Prerequisite:** enable **Message Content Intent** in the Discord developer
+portal (Bot → Privileged Gateway Intents) for both the prod and dev bot
+applications before deploying this version — the gateway rejects the
+connection otherwise.
 
 CI builds and pushes a SHA-tagged image to GHCR
 (`ghcr.io/bkan0n/joes-honeypot`); the server pulls and restarts over a

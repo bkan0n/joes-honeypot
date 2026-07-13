@@ -55,6 +55,11 @@ func TestRecordSpamSighting(t *testing.T) {
 	if n := recordSpamSighting(c, other, 300); n != 1 {
 		t.Errorf("different fingerprint must count separately: got %d, want 1", n)
 	}
+
+	c.Delete(k)
+	if n := recordSpamSighting(c, k, 100); n != 1 {
+		t.Errorf("after consuming the trigger: got %d, want 1", n)
+	}
 }
 
 func TestSpamEligible(t *testing.T) {

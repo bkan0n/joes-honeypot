@@ -104,6 +104,9 @@ func (b *Bot) checkSpam(e *events.MessageCreate, guildID snowflake.ID) {
 		return
 	}
 	defer b.dedup.Delete(dk) // allow re-punishing a rejoining user
+	// Consume the trigger so a re-offense needs two fresh channel sightings,
+	// not just another message riding the same crossed-threshold state.
+	b.spamSightings.Delete(key)
 
 	inputs := b.gatherExemptionInputs(guildID, msg)
 	if isExempt(msg.Author.ID, inputs.OwnerID, inputs.MemberRoles, func(roleID snowflake.ID) bool {

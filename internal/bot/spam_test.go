@@ -16,7 +16,8 @@ func att(name string, size int) discord.Attachment {
 
 func TestSpamFingerprint(t *testing.T) {
 	a := []discord.Attachment{att("a.png", 100), att("b.png", 200)}
-	if spamFingerprint(a) != spamFingerprint(a) {
+	first, second := spamFingerprint(a), spamFingerprint(a)
+	if first != second {
 		t.Error("fingerprint must be deterministic")
 	}
 	reordered := []discord.Attachment{att("b.png", 200), att("a.png", 100)}

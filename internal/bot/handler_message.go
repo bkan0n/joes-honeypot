@@ -29,6 +29,7 @@ func (b *Bot) onMessageCreate(e *events.MessageCreate) {
 	}
 	if hpChannel == nil || hpChannel.GuildID != guildID {
 		b.handleMentionRefresh(e)
+		b.checkSpam(e, guildID)
 		return
 	}
 	cfg, err := b.store.GetConfig(b.ctx, guildID)
@@ -58,7 +59,7 @@ func (b *Bot) onMessageCreate(e *events.MessageCreate) {
 		role, ok := b.client.Caches.Role(guildID, roleID)
 		return ok && isAdminRole(role)
 	})
-	b.moderate(decideModeration(cfg.Action, exempt), cfg, e.ChannelID, msg, inputs.GuildName)
+	b.moderate(decideModeration(cfg.Action, exempt), cfg, e.ChannelID, msg, inputs.GuildName, triggerHoneypot)
 }
 
 // exemptionInputs carries everything isExempt needs about a message's author,
@@ -85,8 +86,19 @@ func (b *Bot) gatherExemptionInputs(guildID snowflake.ID, msg discord.Message) e
 // moderate executes a moderationPlan against Discord: the DM-before-ban
 // dance, the ban/unban REST calls with their failure alerts, event recording,
 // and the log + warning-message refresh.
-func (b *Bot) moderate(plan moderationPlan, cfg *store.Config, channelID snowflake.ID, msg discord.Message, guildName string) {
+func (b *Bot) moderate(plan moderationPlan, cfg *store.Config, channelID snowflake.ID, msg discord.Message, guildName string, kind triggerKind) {
 	guildID := cfg.GuildID
+
+	// Alert fallback: for spam triggers, channelID is a public channel the
+	// spam landed in, so prefer the honeypot channel when one is registered
+	// rather than posting failure alerts publicly.
+	alertChannel := channelID
+	if kind == triggerSpam {
+		if hp, err := b.store.GetChannel(guildID); err == nil && hp != nil {
+			alertChannel = hp.ChannelID
+		}
+	}
+
 	if plan.NotifyExempt {
 		b.safeGo(func() {
 			if err := b.dmUser(msg.Author.ID, exemptDMMessage(guildName)); err != nil {
@@ -106,7 +118,7 @@ func (b *Bot) moderate(plan moderationPlan, cfg *store.Config, channelID snowfla
 		dmDone := make(chan struct{})
 		b.safeGo(func() {
 			defer close(dmDone)
-			if err := b.dmUser(msg.Author.ID, dmMessage(cfg.Action, guildName)); err != nil {
+			if err := b.dmUser(msg.Author.ID, dmMessage(cfg.Action, guildName, kind)); err != nil {
 				b.log.Debug("dm failed", "user", msg.Author.ID, "err", err)
 			}
 		})
@@ -116,12 +128,12 @@ func (b *Bot) moderate(plan moderationPlan, cfg *store.Config, channelID snowfla
 		}
 	}
 
-	reason := rest.WithReason("Joe's Honeypot: posted in the honeypot channel")
+	reason := rest.WithReason(kind.banReason())
 	if err := b.retryTransient("ban", banRetryAttempts, banRetryBackoff, func() error {
 		return b.client.Rest.AddBan(guildID, msg.Author.ID, time.Hour, reason, rest.WithCtx(b.ctx))
 	}); err != nil {
 		b.log.Error("ban failed", "guild", guildID, "user", msg.Author.ID, "err", err)
-		b.sendAlert(cfg, channelID, discord.MessageCreate{Content: fmt.Sprintf(
+		b.sendAlert(cfg, alertChannel, discord.MessageCreate{Content: fmt.Sprintf(
 			"⚠️ Failed to %s <@%d> — check that I have the **Ban Members** permission and that my role is above theirs.",
 			cfg.Action, msg.Author.ID)})
 		return
@@ -137,17 +149,21 @@ func (b *Bot) moderate(plan moderationPlan, cfg *store.Config, channelID snowfla
 			isUnknownBan := errors.As(err, &restErr) && restErr.Code == rest.JSONErrorCodeUnknownBan
 			if !isUnknownBan {
 				b.log.Error("unban after softban failed", "user", msg.Author.ID, "err", err)
-				b.sendAlert(cfg, channelID, discord.MessageCreate{Content: fmt.Sprintf(
+				b.sendAlert(cfg, alertChannel, discord.MessageCreate{Content: fmt.Sprintf(
 					"⚠️ <@%d> was banned but the softban's unban failed — they are still banned.", msg.Author.ID)})
 			}
 		}
 	}
 
-	if err := b.store.RecordEvent(b.ctx, guildID, msg.Author.ID, channelID); err != nil {
+	var eventChannel *snowflake.ID
+	if kind == triggerHoneypot {
+		eventChannel = &channelID
+	}
+	if err := b.store.RecordEvent(b.ctx, guildID, msg.Author.ID, eventChannel); err != nil {
 		b.log.Error("recording event", "guild", guildID, "user", msg.Author.ID, "err", err)
 	}
 
-	logMsg := discord.MessageCreate{Content: logMessage(msg.Author.ID, cfg.Action)}
+	logMsg := discord.MessageCreate{Content: logMessage(msg.Author.ID, cfg.Action, kind)}
 	if plan.UnbanButton {
 		logMsg.Components = []discord.LayoutComponent{
 			discord.NewActionRow(
@@ -156,8 +172,12 @@ func (b *Bot) moderate(plan moderationPlan, cfg *store.Config, channelID snowfla
 		}
 	}
 	b.sendLog(cfg, logMsg)
-	if err := b.ensureWarningMessage(guildID, channelID); err != nil {
-		b.log.Warn("refreshing warning message after moderation", "guild", guildID, "channel", channelID, "err", err)
+	if hp, err := b.store.GetChannel(guildID); err != nil {
+		b.log.Error("loading honeypot channel for warning refresh", "guild", guildID, "err", err)
+	} else if hp != nil {
+		if err := b.ensureWarningMessage(guildID, hp.ChannelID); err != nil {
+			b.log.Warn("refreshing warning message after moderation", "guild", guildID, "channel", hp.ChannelID, "err", err)
+		}
 	}
 	b.log.Info("moderated", "guild", guildID, "user", msg.Author.ID, "action", cfg.Action)
 }
@@ -187,8 +207,9 @@ func (b *Bot) sendLog(cfg *store.Config, msg discord.MessageCreate) bool {
 
 // sendAlert posts an operational warning (failed or incomplete moderation)
 // that must stay visible to moderators: it goes to the log channel when
-// possible, and otherwise falls back to the honeypot channel — unlike
-// routine logs, these are never silently dropped.
+// possible, and otherwise falls back to fallbackChannelID — the caller passes
+// the honeypot channel when one is registered, else the triggering channel.
+// Unlike routine logs, these are never silently dropped.
 func (b *Bot) sendAlert(cfg *store.Config, fallbackChannelID snowflake.ID, msg discord.MessageCreate) {
 	if b.sendLog(cfg, msg) {
 		return

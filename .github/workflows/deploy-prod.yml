@@ -42,7 +42,7 @@ jobs:
             ghcr.io/${{ github.repository }}:${{ github.sha }}
             ghcr.io/${{ github.repository }}:latest
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=max,ignore-error=true
   deploy:
     needs: [lint, tests, build]
     runs-on: ubuntu-latest

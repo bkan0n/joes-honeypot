@@ -17,6 +17,7 @@ const (
 	honeypotChanCID  = "honeypot_channel"
 	logChanCID       = "log_channel"
 	actionCID        = "honeypot_action"
+	spamCID          = "spam_detection"
 	counterButtonCID = "moderated_count"
 )
 
@@ -28,6 +29,17 @@ func configModal(current *store.Config) discord.ModalCreate {
 	opt := func(label string, value store.Action) discord.StringSelectMenuOption {
 		o := discord.NewStringSelectMenuOption(label, string(value))
 		if value == defaultAction {
+			o = o.WithDefault(true)
+		}
+		return o
+	}
+	spamDefault := true
+	if current != nil {
+		spamDefault = current.SpamDetection
+	}
+	spamOpt := func(label, value string, def bool) discord.StringSelectMenuOption {
+		o := discord.NewStringSelectMenuOption(label, value)
+		if def {
 			o = o.WithDefault(true)
 		}
 		return o
@@ -47,6 +59,11 @@ func configModal(current *store.Config) discord.ModalCreate {
 				opt("Softban (kick) — bans & unbans, deleting the last hour of messages", store.ActionSoftban),
 				opt("Ban — deletes the last hour of messages", store.ActionBan),
 				opt("Disabled — react only, take no action", store.ActionDisabled),
+			).WithMinValues(1).WithMaxValues(1)),
+		discord.NewLabel("Cross-channel image spam detection",
+			discord.NewStringSelectMenu(spamCID, "Choose",
+				spamOpt("Enabled — punish users posting the same images in multiple channels", "on", spamDefault),
+				spamOpt("Disabled", "off", !spamDefault),
 			).WithMinValues(1).WithMaxValues(1)),
 	)
 }
@@ -70,6 +87,7 @@ type configSubmission struct {
 	HoneypotChannelID snowflake.ID
 	LogChannelID      *snowflake.ID
 	Action            store.Action
+	SpamDetection     bool
 }
 
 func (b *Bot) onModalSubmit(e *events.ModalSubmitInteractionCreate) {
@@ -108,6 +126,11 @@ func (b *Bot) onModalSubmit(e *events.ModalSubmitInteractionCreate) {
 		return
 	}
 
+	sub.SpamDetection = true
+	if vals := e.Data.StringValues(spamCID); len(vals) == 1 {
+		sub.SpamDetection = vals[0] == "on"
+	}
+
 	var userPerms discord.Permissions
 	if m := e.Member(); m != nil {
 		userPerms = m.Permissions
@@ -125,7 +148,7 @@ func (b *Bot) onModalSubmit(e *events.ModalSubmitInteractionCreate) {
 	if err != nil {
 		b.log.Error("loading previous channel", "guild", guildID, "err", err)
 	}
-	if err := b.store.SaveGuildSetup(b.ctx, store.Config{GuildID: guildID, LogChannelID: sub.LogChannelID, Action: sub.Action}, sub.HoneypotChannelID); err != nil {
+	if err := b.store.SaveGuildSetup(b.ctx, store.Config{GuildID: guildID, LogChannelID: sub.LogChannelID, Action: sub.Action, SpamDetection: sub.SpamDetection}, sub.HoneypotChannelID); err != nil {
 		b.log.Error("saving guild setup", "guild", guildID, "err", err)
 		b.editDeferredReply(e, "Something went wrong saving the config. No settings have been changed.")
 		return

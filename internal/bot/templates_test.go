@@ -10,19 +10,36 @@ import (
 )
 
 func TestDMMessage(t *testing.T) {
-	dm := dmMessage(store.ActionSoftban, "My Server")
+	dm := dmMessage(store.ActionSoftban, "My Server", triggerHoneypot)
 	if !strings.Contains(dm, "kicked") || !strings.Contains(dm, "My Server") {
 		t.Fatalf("softban DM wrong: %q", dm)
 	}
-	if dm := dmMessage(store.ActionBan, "My Server"); !strings.Contains(dm, "banned") {
+	if dm := dmMessage(store.ActionBan, "My Server", triggerHoneypot); !strings.Contains(dm, "banned") {
 		t.Fatalf("ban DM wrong: %q", dm)
 	}
 }
 
 func TestLogMessage(t *testing.T) {
-	msg := logMessage(42, store.ActionBan)
+	msg := logMessage(42, store.ActionBan, triggerHoneypot)
 	if !strings.Contains(msg, "<@42>") || !strings.Contains(msg, "banned") {
 		t.Fatalf("log message wrong: %q", msg)
+	}
+}
+
+func TestTriggerKindWording(t *testing.T) {
+	dm := dmMessage(store.ActionBan, "My Server", triggerSpam)
+	if !strings.Contains(dm, "Spam Detected") || !strings.Contains(dm, "same images in multiple channels") {
+		t.Errorf("spam DM missing spam wording: %q", dm)
+	}
+	if dm := dmMessage(store.ActionBan, "My Server", triggerHoneypot); !strings.Contains(dm, "honeypot channel") {
+		t.Errorf("honeypot DM missing honeypot wording: %q", dm)
+	}
+	lg := logMessage(42, store.ActionSoftban, triggerSpam)
+	if !strings.Contains(lg, "<@42>") || !strings.Contains(lg, "same images in multiple channels") {
+		t.Errorf("spam log missing spam wording: %q", lg)
+	}
+	if r := triggerSpam.banReason(); !strings.Contains(r, "Joe's Honeypot") {
+		t.Errorf("ban reason must identify the bot: %q", r)
 	}
 }
 

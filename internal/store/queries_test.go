@@ -22,21 +22,22 @@ func TestConfigRoundTrip(t *testing.T) {
 	if cfg, err := s.GetConfig(t.Context(), g); err != nil || cfg != nil {
 		t.Fatalf("empty GetConfig = %v, %v; want nil, nil", cfg, err)
 	}
-	want := Config{GuildID: g, LogChannelID: ptr(999), Action: ActionBan}
+	want := Config{GuildID: g, LogChannelID: ptr(999), Action: ActionBan, SpamDetection: true}
 	if err := s.UpsertConfig(t.Context(), want); err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.GetConfig(t.Context(), g)
-	if err != nil || got == nil || got.Action != ActionBan || *got.LogChannelID != 999 {
+	if err != nil || got == nil || got.Action != ActionBan || *got.LogChannelID != 999 || !got.SpamDetection {
 		t.Fatalf("got %+v, %v", got, err)
 	}
 	want.Action = ActionSoftban
 	want.LogChannelID = nil
+	want.SpamDetection = false
 	if err := s.UpsertConfig(t.Context(), want); err != nil {
 		t.Fatal(err)
 	}
 	got, _ = s.GetConfig(t.Context(), g)
-	if got.Action != ActionSoftban || got.LogChannelID != nil {
+	if got.Action != ActionSoftban || got.LogChannelID != nil || got.SpamDetection {
 		t.Fatalf("after upsert got %+v", got)
 	}
 }
@@ -127,7 +128,7 @@ func TestEventsAndCascade(t *testing.T) {
 		t.Fatal(err)
 	}
 	for range 3 {
-		if err := s.RecordEvent(t.Context(), g, u, ch); err != nil {
+		if err := s.RecordEvent(t.Context(), g, u, ptr(ch)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -266,6 +267,20 @@ func TestUnsetLogChannel(t *testing.T) {
 	cfg, _ := s.GetConfig(t.Context(), g)
 	if cfg.LogChannelID != nil {
 		t.Fatalf("log channel not unset: %+v", cfg)
+	}
+}
+
+func TestRecordEventNilChannel(t *testing.T) {
+	s := openTest(t)
+	if err := s.UpsertConfig(t.Context(), Config{GuildID: g, Action: ActionSoftban, SpamDetection: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordEvent(t.Context(), g, u, nil); err != nil {
+		t.Fatalf("RecordEvent with nil channel: %v", err)
+	}
+	n, err := s.CountEventsByGuild(t.Context(), g)
+	if err != nil || n != 1 {
+		t.Fatalf("count = %d, %v; want 1", n, err)
 	}
 }
 

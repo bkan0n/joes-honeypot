@@ -20,9 +20,9 @@ import (
 // appears in spamChannelThreshold distinct channels within spamWindow, the
 // user is moderated with the guild's configured action.
 const (
-	spamWindow           = 30 * time.Minute // sliding: refreshed on every sighting
+	spamWindow           = 15 * time.Second // sliding: refreshed on every sighting
 	spamMinAttachments   = 2                // messages with fewer attachments are ignored
-	spamChannelThreshold = 2                // distinct channels that trigger moderation
+	spamChannelThreshold = 3                // distinct channels that trigger moderation
 )
 
 // spamKey identifies one user's repeated posting of one attachment set.
